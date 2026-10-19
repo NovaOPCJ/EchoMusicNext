@@ -77,6 +77,8 @@ qt_add_shaders(
     PREFIX
     /qt/qml/EchoMusic/Playback
     FILES
+    shaders/lyric-fluid-compose.frag
+    shaders/lyric-background-blur.frag
     shaders/lyric-fluid.frag
     shaders/lyric-mask.vert
     shaders/lyric-mask.frag

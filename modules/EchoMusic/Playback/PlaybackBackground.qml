@@ -44,6 +44,15 @@ Item {
     }
     FrameAnimation {
         running: background.rhythmActive && effect.item && (effect.item as PlaybackBlurredBackground).ready && background.playback.playing && Theme.store.motionEnabled
-        onTriggered: background.phase += Math.min(frameTime, .05) * .18
+        property real accumulated: 0
+        onRunningChanged: accumulated = 0
+        onTriggered: {
+            accumulated += Math.min(frameTime, .1);
+            if (accumulated >= 1 / 30) {
+                const remainder = accumulated % (1 / 30);
+                background.phase += accumulated - remainder;
+                accumulated = remainder;
+            }
+        }
     }
 }

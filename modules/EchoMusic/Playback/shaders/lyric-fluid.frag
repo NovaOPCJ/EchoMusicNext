@@ -5,36 +5,29 @@ layout(std140, binding = 0) uniform buf
 {
     mat4 qt_Matrix;
     float qt_Opacity;
-    float time;
-    float aspect;
-    float rhythm;
     float fade;
     vec4 baseColor;
     float backgroundOpacity;
+    float rhythm;
 };
 layout(binding = 1) uniform sampler2D source;
-// Static blur and rhythm share one frozen, bounded blur texture. Only this
-// final quad covers the window; animation never regenerates the blur pyramid.
-vec4 sampleCover(vec2 uv)
-{
-    if (rhythm < 0.5) {
-        // Match the static background's original 1.2x overscan.
-        return texture(source, (uv - 0.5) / 1.2 + 0.5);
-    }
-    vec2 flow = vec2(sin(uv.y * 4.0 + time), cos(uv.x * 3.0 - time)) * 0.12;
-    vec4 a = texture(source, clamp(uv * 0.6 + flow + vec2(0.1, 0.1), 0.0, 1.0));
-    vec4 b = texture(source, clamp(vec2(1.0 - uv.y, uv.x) * 0.6 - flow + vec2(0.2), 0.0, 1.0));
-    vec4 c = texture(source, clamp(vec2(uv.y, 1.0 - uv.x) + flow * 0.7, 0.0, 1.0));
-    float weight = 0.5 + 0.5 * sin(time * 0.5 + uv.x * aspect + uv.y * 2.0);
-    return mix(mix(a, b, weight), c, 0.25);
-}
-
 void main()
 {
-    // Compose the artwork fade, opaque page base and 50% black scrim here.
-    // Fade the finished background once without allocating a window-sized layer.
-    vec4 art = sampleCover(qt_TexCoord0) * fade;
+    // One full-window sample. Composition/motion and the strong blur have
+    // already finished in three small RGBA16F targets, at most 30 times/sec.
+    vec4 art = texture(source, qt_TexCoord0);
+    if (rhythm > 0.5) {
+        float luma = dot(art.rgb, vec3(0.2126, 0.7152, 0.0722));
+        art.rgb = clamp(mix(vec3(luma), art.rgb, 1.3) * 1.5, 0.0, art.a) * 0.76;
+    }
+    art *= fade;
     vec4 background = art + baseColor * (1.0 - art.a);
     background.rgb *= 0.5;
+    // Stable sub-LSB triangular dither prevents SDR banding when magnifying
+    // the smooth half-float gradients. No animated grain or extra render pass.
+    vec2 pixel = floor(gl_FragCoord.xy);
+    float a = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+    float b = fract(52.9829189 * fract(dot(pixel + 17.0, vec2(0.06711056, 0.00583715))));
+    background.rgb += (a - b) / 255.0 * background.a;
     fragColor = background * backgroundOpacity * qt_Opacity;
 }

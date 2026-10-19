@@ -105,7 +105,11 @@ EchoPluginIo::EchoPluginIo(EchoPluginContext &scope, QString dataPath)
 }
 EchoPluginIo::~EchoPluginIo()
 {
-    Q_ASSERT(!m_thread.isRunning());
+    // Normal retirement already drained asynchronously. Also join on scope
+    // unwinding: QThread must never outlive its containing QObject, and queued
+    // SQL writes still precede the worker's quit barrier.
+    shutdown();
+    m_thread.wait();
 }
 EchoPluginOperation *EchoPluginIo::get(const QUrl &url)
 {

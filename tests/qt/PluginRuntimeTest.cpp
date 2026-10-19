@@ -1,4 +1,5 @@
 #include "PluginRuntime.h"
+#include "../../app/ApplicationShutdown.h"
 #include "PluginManager.h"
 #include "SharingCommands.h"
 #include "PluginDataTransaction.h"
@@ -2675,6 +2676,138 @@ export function activate(ctx) {
                     .value("message")
                     .toString()
                     .contains("activation error"));
+    }
+    void applicationQuitDrainsPluginIoFixture()
+    {
+        const auto mode = qEnvironmentVariable("ECHO_PLUGIN_QUIT_PROBE");
+        if (mode.isEmpty())
+            QSKIP("Subprocess fixture; exercised by applicationQuitDrainsPluginIo");
+        Host host;
+        PluginRuntime runtime(
+            host.engine, host.settings,
+            {host.playback, host.theme, host.shell, host.router, host.account, host.api},
+            host.temporary.path() + "/exit-plugins");
+        runtime.start({package(host.temporary.path(),
+                               "import {awaitOperation} from 'echo:plugin-sdk'; export function "
+                               "activate(c) { return awaitOperation(c.io.writeValue('ready',1)); }",
+                               {"storage"})});
+        QTRY_COMPARE(runtime.rowCount(), 1);
+        const auto installation =
+            runtime.data(runtime.index(0), PluginRuntime::InstallationRole).toString();
+        QTRY_COMPARE(runtime.state(installation), PluginRuntime::Active);
+        QPointer<EchoPluginContext> context = runtime.context(installation);
+        QVERIFY(context);
+        const auto connection = QStringLiteral("quit-drain-values");
+        auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+        {
+            auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
+            database.setDatabaseName(runtime.directory() + "/data/" + installation +
+                                     "/values.sqlite");
+            QVERIFY(database.open());
+            QSqlQuery query(database);
+            QVERIFY(query.exec("BEGIN EXCLUSIVE"));
+            for (int i = 0; i < 32; ++i)
+                context->io()->writeValue(QString("quit-%1").arg(i), i);
+            int requests = 0;
+            bool unlocked = false, drained = false;
+            ApplicationShutdown shutdown(*qApp, [&] {
+                ++requests;
+                runtime.shutdown();
+            });
+            connect(&runtime, &PluginRuntime::closed, &shutdown, [&] {
+                drained = true;
+                shutdown.complete();
+            });
+            // A real locked SQLite worker needs GUI event processing to unlock.
+            // Blocking the GUI to join instead of draining cannot pass this case.
+            QTimer::singleShot(150, &shutdown, [&] { unlocked = query.exec("COMMIT"); });
+            QTimer::singleShot(0, &shutdown, [&] {
+                if (mode.startsWith("exit"))
+                    QCoreApplication::exit(7);
+                else if (mode == "posted")
+                    QCoreApplication::postEvent(qApp, new QEvent(QEvent::Quit));
+                else
+                    QCoreApplication::quit();
+                if (mode == "repeated") {
+                    QCoreApplication::quit();
+                    QTimer::singleShot(1, &shutdown, &QCoreApplication::quit);
+                }
+                if (mode == "exit-repeated")
+                    QTimer::singleShot(1, &shutdown, [] { QCoreApplication::exit(9); });
+            });
+            const int result = QCoreApplication::exec();
+            QCOMPARE(result, mode.startsWith("exit") ? 7 : 0);
+            QCOMPARE(requests, 1);
+            QVERIFY(unlocked && drained);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QVERIFY(context.isNull());
+            QVERIFY(query.prepare("SELECT json FROM plugin_values WHERE key=?"));
+            for (int i = 0; i < 32; ++i) {
+                query.bindValue(0, QString("quit-%1").arg(i));
+                QVERIFY(query.exec());
+                QVERIFY(query.next());
+                QCOMPARE(QJsonDocument::fromJson(query.value(0).toByteArray())
+                             .object()
+                             .value("value")
+                             .toInt(),
+                         i);
+            }
+            qInfo("Plugin quit probe: drained and preserved all 32 accepted SQL writes");
+        }
+    }
+    void applicationQuitDrainsPluginIo_data()
+    {
+        QTest::addColumn<QString>("mode");
+        for (const auto &mode : {"quit", "posted", "exit", "repeated", "exit-repeated"})
+            QTest::newRow(mode) << QString(mode);
+    }
+    void applicationQuitDrainsPluginIo()
+    {
+        QFETCH(QString, mode);
+        QProcess child;
+        auto environment = QProcessEnvironment::systemEnvironment();
+        environment.insert("QT_QPA_PLATFORM", "offscreen");
+        environment.insert("ECHO_PLUGIN_QUIT_PROBE", mode);
+        child.setProcessEnvironment(environment);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(),
+                    {"applicationQuitDrainsPluginIoFixture"});
+        QVERIFY(child.waitForStarted());
+        const bool finished = child.waitForFinished(15000);
+        if (!finished) {
+            child.kill();
+            child.waitForFinished(5000);
+        }
+        const auto output = child.readAll();
+        QVERIFY2(finished, output.constData());
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(child.exitCode() == 0, output.constData());
+        QVERIFY(output.contains("drained and preserved all 32 accepted SQL writes"));
+        QVERIFY(!output.contains("Destroyed while thread"));
+    }
+    void ioDestructionJoinsAcceptedStorageWrites()
+    {
+        Host host;
+        host.runtime.importDirectory(
+            package(host.temporary.path(), "export function activate(c) {}", {"storage"}));
+        QTRY_COMPARE(host.runtime.state(host.installation()), PluginRuntime::Active);
+        const auto directory = host.temporary.path() + "/unwinding-values";
+        {
+            EchoPluginIo io(*host.runtime.context(host.installation()), directory);
+            for (int i = 0; i < 32; ++i)
+                io.writeValue(QString("unwind-%1").arg(i), i);
+        }
+        const auto connection = QStringLiteral("unwound-values");
+        auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+        {
+            auto database = QSqlDatabase::addDatabase("QSQLITE", connection);
+            database.setDatabaseName(directory + "/values.sqlite");
+            QVERIFY(database.open());
+            QSqlQuery query(database);
+            QVERIFY(query.exec("SELECT COUNT(*) FROM plugin_values"));
+            QVERIFY(query.next());
+            QCOMPARE(query.value(0).toInt(), 32);
+        }
     }
     void interruptedProcessFixture()
     {

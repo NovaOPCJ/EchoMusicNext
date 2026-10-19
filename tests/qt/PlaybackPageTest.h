@@ -37,6 +37,7 @@ private slots:
     void renderThemesScaleAndNarrowViewport();
     void coverBackgroundRendersAndReleasesItsSource();
     void backgroundMemoryAndLifecycle();
+    void backgroundBlurWidthAndRhythmBudget();
     void transparentBackgroundComposesOnceAndFrostReleasesTextures();
     void liveOptionalArtworkDecodesAndStopsWhenPageCloses();
 };

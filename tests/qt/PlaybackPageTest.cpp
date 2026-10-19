@@ -137,6 +137,10 @@ public:
     {
         return playback.m_repository.get();
     }
+    static bool queueRestorePending(const PlaybackService &playback)
+    {
+        return playback.m_queueRestorePending;
+    }
     static void reloadQueue(PlaybackService &playback)
     {
         playback.m_queueRestorePending = true;
@@ -239,12 +243,21 @@ struct Session
     bool create(bool seed = true,
                 const QString &harness = QStringLiteral("PlaybackPageHarness.qml"))
     {
-        if (seed)
+        if (seed) {
+            // The real asynchronous empty-queue restore must finish before
+            // injecting render-only metadata, or it can clear the fixture later.
+            if (!QTest::qWaitFor(
+                    [&] { return !PlaybackServiceTestAccess::queueRestorePending(playback); }))
+                return false;
             PlaybackServiceTestAccess::seed(playback);
+        }
         controller.attachPlayback(playback);
         theme.attachToEngine(engine);
+        const QUrl harnessUrl(harness);
         QQmlComponent component(&engine,
-                                QUrl("qrc:/qt/qml/EchoMusic/PlaybackPageTests/" + harness));
+                                harnessUrl.isLocalFile()
+                                    ? harnessUrl
+                                    : QUrl("qrc:/qt/qml/EchoMusic/PlaybackPageTests/" + harness));
         root.reset(
             component.createWithInitialProperties({{"playback", QVariant::fromValue(&playback)},
                                                    {"controller", QVariant::fromValue(&controller)},
@@ -2180,6 +2193,8 @@ void PlaybackPageTest::renderThemesScaleAndNarrowViewport()
     Session session;
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
     QVERIFY(session.create());
+    // Measure the settled layout, not the cover-flight/content entrance.
+    QTRY_VERIFY(session.page()->property("opened").toBool());
     const auto captureDir = qEnvironmentVariable("ECHO_PLAYBACK_CAPTURE_DIR");
     if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
         QSKIP("MultiEffect pixels require the native RHI renderer; run this case on a real window");
@@ -2229,6 +2244,15 @@ void PlaybackPageTest::renderThemesScaleAndNarrowViewport()
                             firstInk = std::min(firstInk, x);
                             lastInk = std::max(lastInk, x);
                         }
+                if (lastInk <= firstInk) {
+                    qInfo() << "Artist capture" << mode << scale << width << artist->size()
+                            << artistTop << artistBottom << artist->property("text")
+                            << artist->opacity() << artist->property("color");
+                    if (!captureDir.isEmpty()) {
+                        QDir().mkpath(captureDir);
+                        frame.save(captureDir + "/artist-failure.png");
+                    }
+                }
                 QVERIFY(lastInk > firstInk);
                 QVERIFY(artistInk < artistPixels.width() * artistPixels.height() / 2);
                 QVERIFY2(qAbs((firstInk + lastInk + 1.) / 2 - artistPixels.width() / 2.) <=
@@ -2252,7 +2276,9 @@ void PlaybackPageTest::renderThemesScaleAndNarrowViewport()
 void PlaybackPageTest::backgroundMemoryAndLifecycle()
 {
     Session session;
-    QVERIFY(session.create(false, QStringLiteral("PlaybackBackgroundHarness.qml")));
+    const auto harness = qEnvironmentVariable("ECHO_BACKGROUND_REFERENCE_HARNESS",
+                                              QStringLiteral("PlaybackBackgroundHarness.qml"));
+    QVERIFY(session.create(false, harness));
     if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
         QSKIP("Background GPU memory requires native RHI");
     QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
@@ -2289,8 +2315,14 @@ void PlaybackPageTest::backgroundMemoryAndLifecycle()
             session.window->grabWindow().save(captureDir + '/' + state + ".png");
         }
         const int hold = qEnvironmentVariableIntValue("ECHO_BACKGROUND_PROBE_HOLD_MS");
-        if (hold > 0)
+        if (hold > 0) {
+            QElapsedTimer wall;
+            wall.start();
+            const auto cpu = std::clock();
             QTest::qWait(std::min(hold, 10000));
+            qInfo() << "Background isolated CPU:" << state << "wall_ms" << wall.elapsed()
+                    << "cpu_ms" << 1000. * (std::clock() - cpu) / CLOCKS_PER_SEC;
+        }
     };
     auto *appearance = session.playback.lyricAppearance();
     appearance->setBackgroundRhythm(true);
@@ -2384,6 +2416,130 @@ void PlaybackPageTest::backgroundMemoryAndLifecycle()
     for (const auto &row : warnings)
         for (const auto &error : row[0].value<QList<QQmlError>>())
             QVERIFY2(error.description().contains("Cannot open"), qPrintable(error.toString()));
+}
+
+void PlaybackPageTest::backgroundBlurWidthAndRhythmBudget()
+{
+    Session session;
+    QVERIFY(session.create(false, QStringLiteral("PlaybackBackgroundHarness.qml")));
+    if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
+        QSKIP("Background quality and timing require native RHI");
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    session.theme.setMotionEnabled(false);
+    QImage edge(512, 512, QImage::Format_RGB32);
+    edge.fill(Qt::black);
+    {
+        QPainter painter(&edge);
+        painter.fillRect(256, 0, 256, 512, Qt::white);
+    }
+    const auto path = session.directory.filePath("background-edge.png");
+    QVERIFY(edge.save(path));
+    PlaybackServiceTestAccess::cover(session.playback, QUrl::fromLocalFile(path).toString());
+    auto *background = session.root->property("backgroundSurface").value<QQuickItem *>();
+    QVERIFY(background);
+    auto *appearance = session.playback.lyricAppearance();
+    appearance->setBackgroundRhythm(false);
+    appearance->setBackgroundBlur(true);
+    QTRY_VERIFY(background->property("blurReady").toBool());
+    const auto captureDir = qEnvironmentVariable("ECHO_BACKGROUND_CAPTURE_DIR");
+    double firstWidth = 0;
+    for (const auto size : {QSize(960, 600), QSize(1600, 1000), QSize(2048, 1152)}) {
+        session.window->resize(size);
+        QTest::qWait(200);
+        const auto frame = session.window->grabWindow();
+        QVERIFY(!frame.isNull());
+        const int y = frame.height() / 2;
+        const int dark = qGray(frame.pixel(frame.width() / 10, y));
+        const int light = qGray(frame.pixel(frame.width() * 9 / 10, y));
+        QVERIFY(light - dark > 110); // Preserve cover contrast instead of a flat fill.
+        int start = -1, end = -1;
+        for (int x = 0; x < frame.width(); ++x) {
+            const double level = (qGray(frame.pixel(x, y)) - dark) / double(light - dark);
+            if (start < 0 && level >= .1)
+                start = x;
+            if (end < 0 && level >= .9)
+                end = x;
+        }
+        QVERIFY(start >= 0 && end > start);
+        const double width = double(end - start) / frame.width();
+        qInfo() << "Background measured 10-90% edge width" << size << frame.size() << width;
+        // A broad, smooth transition at every window size, measured from native
+        // pixels. A bounded texture alone cannot detect weak blur or a stale resize.
+        QVERIFY(width >= .11 && width <= .15);
+        if (firstWidth)
+            QVERIFY(qAbs(width - firstWidth) < .005);
+        firstWidth = width;
+        if (!captureDir.isEmpty()) {
+            QDir().mkpath(captureDir);
+            QVERIFY(frame.save(captureDir + QString("/edge-%1.png").arg(size.width())));
+        }
+    }
+    session.window->resize(1280, 800);
+    // Optional real cover for visual review, without adding user artwork to source.
+    const auto visualCover = qEnvironmentVariable("ECHO_BACKGROUND_VISUAL_COVER");
+    if (!visualCover.isEmpty()) {
+        QVERIFY(QFile::exists(visualCover));
+        PlaybackServiceTestAccess::cover(session.playback,
+                                         QUrl::fromLocalFile(visualCover).toString());
+        QTRY_VERIFY(background->property("blurReady").toBool());
+        QTest::qWait(200);
+        if (!captureDir.isEmpty())
+            QVERIFY(session.window->grabWindow().save(captureDir + "/cover-static.png"));
+    }
+    appearance->setBackgroundRhythm(true);
+    session.theme.setMotionEnabled(true);
+    PlaybackServiceTestAccess::playing(session.playback, true);
+    QTest::qWait(300);
+    auto *surface = background->findChild<QQuickItem *>("playbackBackgroundSurface");
+    QVERIFY(surface);
+    const auto submissions = [&] { return surface->property("renderedFrames").toInt(); };
+    const int before = submissions();
+    const double phase = background->property("phase").toReal();
+    const auto cpuStart = std::clock();
+    QElapsedTimer wall;
+    wall.start();
+    QTest::qWait(3000);
+    const double elapsed = wall.elapsed() / 1000.;
+    const double cpu = double(std::clock() - cpuStart) / CLOCKS_PER_SEC;
+    const double rate = (submissions() - before) / elapsed;
+    const double phaseElapsed = background->property("phase").toReal() - phase;
+    qInfo() << "Background isolated timing: wall seconds" << elapsed << "CPU seconds" << cpu
+            << "scheduled offscreen frames/sec" << rate << "phase seconds" << phaseElapsed;
+    QVERIFY(rate >= 24 && rate <= 31);
+    QVERIFY(qAbs(phaseElapsed - elapsed) < .15);
+    if (!captureDir.isEmpty()) {
+        QVERIFY(session.window->grabWindow().save(captureDir + "/cover-rhythm.png"));
+        background->setProperty("phase", 15.0);
+        QTest::qWait(100);
+        QVERIFY(session.window->grabWindow().save(captureDir + "/cover-rhythm-15.png"));
+    }
+    PlaybackServiceTestAccess::playing(session.playback, false);
+    QTest::qWait(100); // Drain the one coalesced request already submitted.
+    const int pausedFrames = submissions();
+    const double pausedPhase = background->property("phase").toReal();
+    QTest::qWait(350);
+    QCOMPARE(submissions(), pausedFrames);
+    QCOMPARE(background->property("phase").toReal(), pausedPhase);
+    PlaybackServiceTestAccess::playing(session.playback, true);
+    session.theme.setMotionEnabled(false);
+    QTest::qWait(100);
+    const int reducedFrames = submissions();
+    QTest::qWait(350);
+    QCOMPARE(submissions(), reducedFrames);
+    QPointer<QQuickItem> composition =
+        background->findChild<QQuickItem *>("playbackBackgroundCompositionTexture");
+    QPointer<QQuickItem> horizontal =
+        background->findChild<QQuickItem *>("playbackBackgroundHorizontalTexture");
+    QPointer<QQuickItem> final = background->findChild<QQuickItem *>("playbackBackgroundTexture");
+    QVERIFY(composition && horizontal && final);
+    for (const auto &target : {composition, horizontal, final}) {
+        const auto size = target->property("textureSize").toSize();
+        QVERIFY(size.width() <= 192 && size.height() <= 192);
+        QVERIFY(!target->property("live").toBool());
+    }
+    appearance->setBackgroundBlur(false);
+    QTRY_VERIFY(composition.isNull() && horizontal.isNull() && final.isNull());
+    QVERIFY(warnings.isEmpty());
 }
 
 void PlaybackPageTest::transparentBackgroundComposesOnceAndFrostReleasesTextures()

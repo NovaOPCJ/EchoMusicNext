@@ -1,4 +1,4 @@
-qt_add_executable(echomusicnext main.cpp Application.h Application.cpp)
+qt_add_executable(echomusicnext main.cpp Application.h Application.cpp ApplicationShutdown.h)
 if(NOT APPLE)
     if(WIN32)
         set(ECHO_APP_ICON assets/icon.ico)

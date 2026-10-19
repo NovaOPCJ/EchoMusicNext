@@ -1,4 +1,5 @@
 #include "Application.h"
+#include "ApplicationShutdown.h"
 #include "StartupController.h"
 #include "ApplicationUrlHandler.h"
 #include "PluginRuntime.h"
@@ -572,6 +573,7 @@ int EchoMusic::Application::run()
     const auto beginShutdown = [&] {
         if (std::exchange(quitting, true))
             return;
+        qInfo("Application shutdown started");
         startup.shutdown();
         shareResolver.shutdown();
         shortcuts.shutdown();
@@ -580,6 +582,7 @@ int EchoMusic::Application::run()
         pluginManager.shutdown();
         plugins.shutdown();
     };
+    EchoMusic::ApplicationShutdown shutdown(app, beginShutdown);
     QObject::connect(&startup, &EchoMusic::StartupController::quitRequested, &app, beginShutdown);
     QObject::connect(&relaunch, &EchoMusic::RelaunchService::readyToQuit, &app, beginShutdown);
     QObject::connect(&about, &EchoMusic::AboutService::readyToQuit, &app, beginShutdown);
@@ -626,7 +629,8 @@ int EchoMusic::Application::run()
                     settings.sync();
                     exitStatus = 1;
                 }
-                app.quit();
+                qInfo("Application shutdown complete");
+                shutdown.complete();
             });
     };
     QObject::connect(&playback, &EchoMusic::PlaybackService::closed, &app, serviceClosed);
