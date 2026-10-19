@@ -224,7 +224,7 @@ void HttpProxyRequest::start()
             add(name + ": " + value);
         if (hops.contains(name) || name == "expect" || name == "content-length")
             continue;
-        add(name + (value.isEmpty() ? ";" : ": " + value));
+        add(name + (value.isEmpty() ? QByteArray(";") : ": " + value));
         encoded |= name == "accept-encoding";
         contentType |= name == "content-type";
     }

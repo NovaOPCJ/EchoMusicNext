@@ -50,11 +50,11 @@ QUrl autoPacAddress()
 QStringList localAddresses()
 {
     QStringList addresses;
-    for (const auto &interface : QNetworkInterface::allInterfaces()) {
-        if (!(interface.flags() & QNetworkInterface::IsUp) ||
-            interface.flags() & QNetworkInterface::IsLoopBack)
+    for (const auto &iface : QNetworkInterface::allInterfaces()) {
+        if (!(iface.flags() & QNetworkInterface::IsUp) ||
+            iface.flags() & QNetworkInterface::IsLoopBack)
             continue;
-        for (const auto &entry : interface.addressEntries())
+        for (const auto &entry : iface.addressEntries())
             if (!entry.ip().isNull() && !entry.ip().isLoopback())
                 addresses.append(entry.ip().toString());
     }

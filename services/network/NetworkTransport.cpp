@@ -588,12 +588,12 @@ public:
         QHostAddress address =
             receiver.isLoopback() ? QHostAddress(QHostAddress::LocalHost) : QHostAddress();
         for (bool virtualInterfaces : {false, true}) {
-            for (const auto &interface : QNetworkInterface::allInterfaces()) {
-                if (!interface.flags().testFlag(QNetworkInterface::IsUp) ||
-                    interface.flags().testFlag(QNetworkInterface::IsLoopBack) ||
-                    (interface.type() == QNetworkInterface::Virtual) != virtualInterfaces)
+            for (const auto &iface : QNetworkInterface::allInterfaces()) {
+                if (!iface.flags().testFlag(QNetworkInterface::IsUp) ||
+                    iface.flags().testFlag(QNetworkInterface::IsLoopBack) ||
+                    (iface.type() == QNetworkInterface::Virtual) != virtualInterfaces)
                     continue;
-                for (const auto &entry : interface.addressEntries()) {
+                for (const auto &entry : iface.addressEntries()) {
                     if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol)
                         continue;
                     if (!receiver.isNull() &&
