@@ -41,6 +41,7 @@ class PluginManager final : public QObject
     Q_PROPERTY(QStringList sourceIds READ sourceIds NOTIFY changed)
     Q_PROPERTY(QString shareState READ shareState NOTIFY changed)
     Q_PROPERTY(QString shareError READ shareError NOTIFY changed)
+    Q_PROPERTY(QVariantMap shareTarget READ shareTarget NOTIFY changed)
     Q_PROPERTY(QVariantMap shareRecord READ shareRecord NOTIFY changed)
     Q_PROPERTY(QString shareSourceUrl READ shareSourceUrl NOTIFY changed)
 public:
@@ -128,6 +129,10 @@ public:
     QString shareError() const
     {
         return m_shareError;
+    }
+    QVariantMap shareTarget() const
+    {
+        return m_shareTarget;
     }
     QVariantMap shareRecord() const
     {

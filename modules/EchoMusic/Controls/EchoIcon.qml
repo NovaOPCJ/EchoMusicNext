@@ -10,6 +10,9 @@ Item {
     property bool resourceActive: true
     readonly property alias status: image.status
     readonly property int rasterSize: Math.max(1, Math.ceil(Math.min(width, height) * Screen.devicePixelRatio))
+    function visualCenter(): point {
+        return EchoIconSource.visualCenter(control.name, Qt.size(control.width, control.height));
+    }
     implicitWidth: 20
     implicitHeight: 20
     Image {

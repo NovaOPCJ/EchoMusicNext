@@ -8,6 +8,7 @@ import EchoMusic.Playback
 // All controls use the same lyric service across playback surfaces.
 Flickable {
     id: tools
+    EchoWheelScroll.enabled: true
     objectName: "playbackLyricTools"
     required property PlaybackService playback
     required property ThemeColors colors

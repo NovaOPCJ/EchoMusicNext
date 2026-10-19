@@ -942,6 +942,54 @@ mod tests {
     use std::io::{Read, Write};
 
     #[tokio::test]
+    async fn registration_binary_body_is_preserved_independently_of_response_mime() {
+        use super::super::crypto::PlaylistEnvelope;
+        for mime in ["application/octet-stream", "application/json", "text/json"] {
+            let plain =
+                serde_json::json!({"status":1,"error_code":0,"data":{"dfid":"test-identity"}});
+            let envelope =
+                PlaylistEnvelope::registration_with_seed(&plain, "abc123".into()).unwrap();
+            let body = envelope.body.clone();
+            let expected = body.clone();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = [0; 4096];
+                assert!(socket.read(&mut request).unwrap() > 0);
+                write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
+                // Binary chunks, including arbitrary non-UTF8 bytes, must not
+                // pass through a JSON/text conversion in the transport.
+                for chunk in body.chunks(7) {
+                    socket.write_all(chunk).unwrap();
+                }
+            });
+            let client = ApiClient::new().unwrap();
+            let response = client
+                .receive(
+                    client
+                        .http()
+                        .get(format!("http://{address}/risk/v2/r_register_dev")),
+                    BTreeMap::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.bytes, expected);
+            let decrypted = envelope.decrypt(&response.bytes).unwrap();
+            assert_eq!(
+                crate::module::register_dev::convert(&decrypted)
+                    .unwrap()
+                    .dfid,
+                "test-identity"
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
     #[cfg(feature = "local-api-fixtures")]
     async fn grade_query_keeps_endpoint_body_key_and_clears_default_url_signature() {
         let fixture: serde_json::Value = serde_json::from_slice(include_bytes!(

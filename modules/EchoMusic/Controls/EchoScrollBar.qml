@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 import QtQuick.Controls.Basic
 import EchoMusic.Theme
 
@@ -8,6 +9,13 @@ ScrollBar {
     // Geometry can belong to a page while Qt's attached ScrollBar keeps the
     // size, position and input mapping connected to its virtualized Flickable.
     property Item hoverTarget: parent
+    property Flickable wheelView: parent as Flickable
+    property bool angleWheelEnabled: wheelView !== null && wheelView.visible && wheelView.enabled
+    Binding {
+        target: bar.wheelView ? bar.wheelView.EchoWheelScroll : null
+        property: "enabled"
+        value: bar.angleWheelEnabled
+    }
     property bool resourceActive: true
     readonly property bool revealed: resourceActive && (areaHover.hovered || hovered || pressed || active || hideDelay.running)
     readonly property int effectDuration: Theme.normalDuration > 0 ? 200 : 0

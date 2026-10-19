@@ -9,7 +9,7 @@ EchoSoftButton {
     property bool iconOnly: false
     property string tooltipText: ""
     implicitHeight: EchoControlSize.heightFor(size)
-    implicitWidth: iconOnly ? 36 : contentItem.implicitWidth + leftPadding + rightPadding
+    implicitWidth: iconOnly ? 36 : Math.ceil(contentItem.implicitWidth + leftPadding + rightPadding)
     leftPadding: iconOnly ? 0 : EchoControlSize.buttonPaddingFor(size)
     rightPadding: leftPadding
     font: Theme.font(12, Theme.semiboldWeight)

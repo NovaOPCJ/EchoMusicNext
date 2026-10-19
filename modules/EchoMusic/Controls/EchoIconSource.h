@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QQuickImageProvider>
 #include <QUrl>
+#include <QPointF>
+#include <QSizeF>
 #include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
@@ -31,5 +33,6 @@ public:
     explicit EchoIconSource(QObject *parent) : QObject(parent) {}
     static EchoIconSource *create(QQmlEngine *engine, QJSEngine *scriptEngine);
     Q_INVOKABLE QUrl urlFor(const QString &glyph, const QColor &color) const;
+    Q_INVOKABLE QPointF visualCenter(const QString &glyph, const QSizeF &size) const;
 };
 } // namespace EchoMusic

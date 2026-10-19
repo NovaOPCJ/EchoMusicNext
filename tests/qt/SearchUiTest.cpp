@@ -33,6 +33,7 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QSignalSpy>
+#include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTextLayout>
 #include <QtTest>
@@ -663,7 +664,9 @@ Window {
         window->resize(550, 450);
         page->setProperty("pageActive", true);
         QTRY_COMPARE(list->property("count").toInt(), 1000);
-        QTRY_COMPARE(page->property("scrollTop").toReal(), saved);
+        // Recreating the virtual model runs Qt's fixup(), which snaps an
+        // interrupted fractional animation position to a logical pixel.
+        QTRY_COMPARE(page->property("scrollTop").toReal(), qreal(qRound(saved)));
         root->setProperty("rowCount", 1);
         QTRY_COMPARE(list->property("count").toInt(), 1);
         QTRY_COMPARE(page->property("scrollTop").toReal(), qreal(0));
@@ -705,6 +708,13 @@ Window {
             QTRY_VERIFY(view->property("contentY").toReal() > 800);
             QTest::qWait(50);
             const auto before = view->property("contentY").toReal();
+            QObject *angleWheel = nullptr;
+            for (auto *child : view->children())
+                if (QByteArray(child->metaObject()->className())
+                        .endsWith("EchoWheelScrollAttached"))
+                    angleWheel = child;
+            QVERIFY(angleWheel && angleWheel->property("enabled").toBool());
+            const auto beforeOffset = page->property("scrollTop").toReal();
             QSignalSpy movement(view, SIGNAL(movementStarted()));
             QVERIFY(movement.isValid());
             // Exercise the actual QQuickWindow dispatch below the sticky header.
@@ -714,11 +724,12 @@ Window {
                               QPoint(0, -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase,
                               false);
             QCoreApplication::sendEvent(window, &event);
+            QVERIFY(angleWheel->property("running").toBool());
             // A queued no-op layout restore must not cancel the native wheel
             // animation before its first frame changes contentY.
             QVERIFY(QMetaObject::invokeMethod(page, "scheduleRestore"));
             QTRY_VERIFY2_WITH_TIMEOUT(
-                view->property("contentY").toReal() > before,
+                page->property("scrollTop").toReal() > beforeOffset,
                 qPrintable(QStringLiteral("presentation=%1, before=%2, after=%3, viewport=%4x%5")
                                .arg(presentation)
                                .arg(before)
@@ -726,7 +737,15 @@ Window {
                                .arg(view->width())
                                .arg(view->height())),
                 1000);
-            QVERIFY(movement.count() > 0);
+            QTRY_VERIFY2(qAbs(page->property("scrollTop").toReal() - beforeOffset -
+                              QGuiApplication::styleHints()->wheelScrollLines() * 24) < 1.1,
+                         qPrintable(QStringLiteral(
+                                        "presentation=%1 before=%2 after=%3 enabled=%4 running=%5")
+                                        .arg(presentation)
+                                        .arg(before)
+                                        .arg(view->property("contentY").toReal())
+                                        .arg(angleWheel->property("enabled").toBool())
+                                        .arg(angleWheel->property("running").toBool())));
             view->setProperty("contentY", before);
             QVERIFY(QMetaObject::invokeMethod(view, "cancelFlick"));
         }
@@ -820,10 +839,11 @@ Window {
                                        .arg(region)
                                        .arg(direction)),
                         1000);
-                    // Native content scrolling starts Flickable movement. A
-                    // whole-page scrollBy workaround would fail this assertion.
-                    if (region < 2)
-                        QVERIFY(movement.count() > 0);
+                    // Angle wheels preserve each tick's distance in every hit
+                    // region. Pixel gestures below must still use native movement.
+                    QTRY_VERIFY(qAbs(page->property("scrollTop").toReal() - before -
+                                     direction * QGuiApplication::styleHints()->wheelScrollLines() *
+                                         24) < 1.1);
                 }
             }
             QVERIFY(QMetaObject::invokeMethod(page, "scrollTo", Q_ARG(double, 1000.0)));
@@ -927,8 +947,8 @@ Window {
                                    .arg(position.x())
                                    .arg(position.y())),
                     1000);
-                if (region == 0)
-                    QVERIFY(movement.count() > 0);
+                QTRY_VERIFY(qAbs(viewport->property("scrollTop").toReal() - before -
+                                 QGuiApplication::styleHints()->wheelScrollLines() * 24) < 1.1);
             }
         }
         QCOMPARE(warnings.count(), 0);

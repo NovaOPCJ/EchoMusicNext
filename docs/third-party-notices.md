@@ -17,6 +17,7 @@ EchoMusicNext 采用 GPL-3.0-only。第三方代码、库和资源保留各自�
 | Linux libproxy | 系统动态链接公开 `libproxy-1.0` C API 和桌面配置插件 | LGPL-2.1-or-later，含 Nathaniel McCallum 等原作者版权；各插件保留自己的许可 |
 | Chromium / Mozilla PAC helpers | `services/network/vendor/pac_js_library.h`，未修改的标准辅助函数 | 文件中的 Mozilla 三许可分支与 Chromium BSD 通知；固定来源及哈希见 [vendor 记录](../services/network/vendor/README.md) |
 | zip 8.6.0 | Rust 插件 ZIP 解包，仅启用所需压缩特性 | [MIT 原文](licenses/zip-8-MIT.txt) |
+| Crashpad / Chromium / Sentry 维护者 | 三端原生崩溃 minidump；使用固定 revision `176efcdecd4275a672d9b45d92ae98f26ad288d8` 的 [CMake 集成](https://github.com/getsentry/crashpad)，子依赖及 SHA-256 见 `cmake/Crashpad.cmake`；报告只保存在本机 | [Apache-2.0](licenses/crashpad/Crashpad-Apache-2.0.txt)；[mini_chromium BSD](licenses/crashpad/mini_chromium-BSD.txt)、[Linux syscall support](licenses/crashpad/linux-syscall-support-BSD.txt)、[MPack MIT](licenses/crashpad/mpack-MIT.txt)、[getopt 公有领域](licenses/crashpad/getopt-public-domain.txt)、[cpp-httplib MIT](licenses/crashpad/cpp-httplib-MIT.txt)、[XNU 头文件许可](licenses/crashpad/xnu-APSL-2.0.txt)；Windows 静态构建的 [zlib](licenses/crashpad/chromium-zlib.txt)，Unix 使用系统 zlib |
 | serde_path_to_error 0.1.20 | JSON 字段路径诊断 | MIT OR Apache-2.0，保留对应 crate 的 LICENSE-MIT / LICENSE-APACHE |
 | 其它 Rust 依赖 | 直接与间接依赖由 `Cargo.lock` 固定 | 收集实际版本的版权、许可与源码提供材料 |
 | aqtinstall 3.3.0 | 开发用 Qt SDK 安装工具，依赖固定在 `tools/qt/requirements.txt` | MIT；不随应用运行时部署 |

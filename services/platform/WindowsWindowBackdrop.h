@@ -7,7 +7,8 @@
 class QWindow;
 namespace EchoMusic
 {
-/// Qt owns HWND styles and its alpha swapchain. This adapter owns material only.
+/// Qt owns HWND styles and its alpha swapchain. This adapter requests DWM material
+/// and native corner policy without replacing the window region or hit testing.
 class WindowsWindowBackdrop final : public QObject, public QAbstractNativeEventFilter
 {
     Q_OBJECT
@@ -26,6 +27,7 @@ private:
     void clear();
     bool accent(int state);
     bool material(bool enabled);
+    void applyCorners();
     void queueRepair();
     QMetaObject::Connection m_visibilityConnection;
     QPointer<QWindow> m_window;

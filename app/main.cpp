@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QTextStream>
 #include "LogService.h"
+#include "CrashDiagnostics.h"
 #include "SingleInstance.h"
 #include "RelaunchService.h"
 #include <QCommandLineParser>
@@ -23,6 +24,16 @@ int main(int argc, char *argv[])
     // initialize Qt GUI, account storage, audio or the instance lock.
     if (EchoMusic::RelaunchService::isHelperInvocation(argc, argv))
         return EchoMusic::RelaunchService::runHelper(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("hoowhoami"));
+    QCoreApplication::setApplicationName(QStringLiteral("EchoMusicNext"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(ECHO_APP_VERSION));
+    QString crashDirectory = EchoMusic::CrashDiagnostics::argumentLogDirectory(argc, argv);
+    if (crashDirectory.isEmpty())
+        crashDirectory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
+                         QStringLiteral("/logs");
+    // Its destructor runs after QApplication: initialization and native/Qt
+    // teardown failures have the same emergency reporting path as runtime faults.
+    EchoMusic::CrashDiagnostics crashDiagnostics(crashDirectory);
     EchoMusic::initializeNetworkEnvironment();
     // Keep every Qt Quick surface alpha-capable from its first native creation.
     // The theme paints an opaque skin when transparency is disabled.
@@ -32,14 +43,11 @@ int main(int argc, char *argv[])
     EchoMusic::ApplicationUrlHandler urlHandler;
     EchoMusic::configureUiTypography();
     // Use the publisher identity: Qt app-data paths are <publisher>/<application>.
-    QCoreApplication::setOrganizationName(QStringLiteral("hoowhoami"));
-    QCoreApplication::setApplicationName(QStringLiteral("EchoMusicNext"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("EchoMusicNext"));
 #ifndef Q_OS_MACOS
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(ECHO_APP_ICON_PATH)));
 #endif
     QGuiApplication::setDesktopFileName(QStringLiteral(ECHO_APPLICATION_ID));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     app.setQuitOnLastWindowClosed(false);
     QCommandLineParser parser;
@@ -129,6 +137,13 @@ int main(int argc, char *argv[])
     EchoMusic::LogService logging(parser.value(QStringLiteral("log-dir")), int(level), true,
                                   smoke ? nullptr : &logPreferences,
                                   parser.isSet(QStringLiteral("log-level")));
+    if (!crashDiagnostics.errorString().isEmpty())
+        qCritical().noquote() << "Crash diagnostics degraded:" << crashDiagnostics.errorString();
+    for (const auto &report : crashDiagnostics.previousAbnormalSessions())
+        qWarning().noquote() << "Previous session ended without clean shutdown; crash report:"
+                             << report;
+    for (const auto &summary : crashDiagnostics.previousCrashSummaries())
+        qCritical().noquote() << "Previous native crash:" << summary;
     EchoMusic::Application application(
         app, smoke ? nullptr : &instance, parser.values(QStringLiteral("plugin-dir")),
         parser.isSet(QStringLiteral("safe-mode")), openUrl, &urlHandler, &logging);

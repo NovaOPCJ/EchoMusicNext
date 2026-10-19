@@ -1,4 +1,7 @@
 #include "EchoIconSource.h"
+#include "EchoWheelScroll.h"
+#include <QStyleHints>
+#include <QScopeGuard>
 #include "EchoBackdropRoot.h"
 #include "EchoSelectModel.h"
 #include <QAbstractItemModelTester>
@@ -74,6 +77,183 @@ class ControlsUiTest : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void continuousAngleWheelPreservesDistanceAndPixelInput()
+    {
+        ControlsSession session;
+        session.theme.attachToEngine(session.engine);
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+Window {
+ visible: true; width: 600; height: 450
+ Flickable {
+  objectName: "wheelView"; anchors.fill: parent
+  contentHeight: 30000; contentWidth: width; boundsBehavior: Flickable.StopAtBounds
+  ScrollBar.vertical: EchoScrollBar {}
+ }
+})",
+                          QUrl());
+        session.root.reset(component.create());
+        QVERIFY2(session.root, qPrintable(component.errorString()));
+        session.window = qobject_cast<QQuickWindow *>(session.root.data());
+        QVERIFY(session.window && Test::prepareNativeInput(session.window));
+        auto *view = session.root->findChild<QQuickItem *>("wheelView");
+        QVERIFY(view);
+        auto *wheel = qobject_cast<EchoWheelScrollAttached *>(
+            qmlAttachedPropertiesObject<EchoWheelScroll>(view, false));
+        QVERIFY(wheel);
+        QTest::qWait(150); // Finish initial window/attached-scrollbar polish.
+        auto send = [&](QPoint pixel, int angle, Qt::ScrollPhase phase = Qt::NoScrollPhase,
+                        Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            const QPointF point(200, 200);
+            QWheelEvent event(point, session.window->mapToGlobal(point.toPoint()), pixel,
+                              QPoint(0, angle), Qt::NoButton, modifiers, phase, false,
+                              pixel.isNull() ? Qt::MouseEventNotSynthesized
+                                             : Qt::MouseEventSynthesizedBySystem);
+            static ulong timestamp = 1000;
+            event.setTimestamp(timestamp += 16);
+            QCoreApplication::sendEvent(session.window, &event);
+        };
+        const qreal step = QGuiApplication::styleHints()->wheelScrollLines() * 24;
+        for (int interval : {0, 16, 33, 100}) {
+            view->setProperty("contentY", 1000.);
+            for (int i = 0; i < 20; ++i) {
+                send({}, -120);
+                if (i == 10)
+                    view->setProperty("contentHeight", interval == 16 ? 31000. : 30000.);
+                if (interval)
+                    QTest::qWait(interval);
+            }
+            QTRY_VERIFY(!wheel->running());
+            QVERIFY2(qAbs(view->property("contentY").toReal() - (1000 + 20 * step)) < 0.1,
+                     qPrintable(QString::number(view->property("contentY").toReal())));
+            qInfo() << "wheel interval" << interval << "distance"
+                    << view->property("contentY").toReal() - 1000;
+        }
+        view->setProperty("contentY", 1000.);
+        for (int i = 0; i < 8; ++i)
+            send({}, -15);
+        QTRY_VERIFY(!wheel->running());
+        QVERIFY(qAbs(view->property("contentY").toReal() - 1000 - step) < 0.1);
+        auto *hints = QGuiApplication::styleHints();
+        const int originalLines = hints->wheelScrollLines();
+        const auto restoreLines =
+            qScopeGuard([hints, originalLines] { hints->setWheelScrollLines(originalLines); });
+        hints->setWheelScrollLines(5);
+        view->setProperty("contentY", 1000.);
+        send({}, -120);
+        QTRY_VERIFY(!wheel->running());
+        QVERIFY(qAbs(view->property("contentY").toReal() - 1120) < 0.1);
+        hints->setWheelScrollLines(originalLines);
+        send({}, -120);
+        QTest::qWait(25);
+        const auto beforeReverse = view->property("contentY").toReal();
+        send({}, 120);
+        QTRY_VERIFY(!wheel->running());
+        QVERIFY(qAbs(view->property("contentY").toReal() - beforeReverse + step) < 0.1);
+        const auto beforeCtrl = view->property("contentY").toReal();
+        send({}, -120, Qt::NoScrollPhase, Qt::ControlModifier);
+        QTest::qWait(150);
+        QCOMPARE(view->property("contentY").toReal(), beforeCtrl);
+        view->setProperty("contentY", 10.);
+        send({}, 120);
+        QTRY_VERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 0.);
+        view->setProperty("contentY", 1000.);
+        QSignalSpy movement(view, SIGNAL(movementStarted()));
+        send({}, 0, Qt::ScrollBegin);
+        for (int i = 0; i < 3; ++i)
+            send(QPoint(0, -40), -80, Qt::ScrollUpdate);
+        QTRY_VERIFY(view->property("contentY").toReal() > 1000);
+        QVERIFY(movement.count() > 0);
+        QVERIFY(!wheel->running());
+        send({}, 0, Qt::ScrollEnd);
+        send({}, -120);
+        QVERIFY(wheel->running());
+        view->setVisible(false);
+        QVERIFY(!wheel->running());
+        view->setVisible(true);
+        send({}, -120);
+        QVERIFY(wheel->running());
+        session.window->hide();
+        QVERIFY(!wheel->running());
+    }
+    void scaledPopupTextKeepsNativePixelResolution()
+    {
+        ControlsSession session;
+        session.theme.attachToEngine(session.engine);
+        session.theme.setMotionEnabled(false);
+        session.theme.setFloatingFrosted(false);
+        session.theme.setMode(ThemeStore::Light);
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+import EchoMusic.Theme
+ApplicationWindow {
+ id: host; width: 1100; height: 800; visible: true; color: "white"
+ property real zoom: 1
+ property alias panel: owner.item
+ function showPanel() { owner.open() }
+ EchoPopupLoader { id: owner; hostItem: host.contentItem
+  sourceComponent: EchoDrawer { uiScale: host.zoom; playerBottomInset: 12
+   contentItem: Item {
+    Text { x: 24; y: 48; text: "播放队列 弹出层文字 清晰度\nEchoMusicNext 0123456789"; font: Theme.font(13,600); color: "#111111" }
+   }
+  }
+ }
+})",
+                          QUrl());
+        session.root.reset(component.create());
+        QVERIFY2(session.root, qPrintable(component.errorString()));
+        session.window = qobject_cast<QQuickWindow *>(session.root.data());
+        QVERIFY(session.window && Test::prepareNativeInput(session.window));
+        if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
+            QSKIP("Text pixels require native RHI");
+        for (qreal scale : {1., 1.25, 1.5}) {
+            session.root->setProperty("zoom", scale);
+            QVERIFY(QMetaObject::invokeMethod(session.root.data(), "showPanel"));
+            QPointer<QObject> panel = session.root->property("panel").value<QObject *>();
+            QVERIFY(panel);
+            QTRY_VERIFY(panel->property("opened").toBool());
+            auto *content = panel->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content);
+            QTest::qWait(100);
+            const auto texture = QQmlProperty(content, "layer.textureSize").read().toSize();
+            const auto dpr = session.window->devicePixelRatio();
+            QCOMPARE(texture, QSize(qCeil(content->width() * scale * dpr),
+                                    qCeil(content->height() * scale * dpr)));
+            const auto point = content->mapToScene(QPointF(22, 46)) * dpr;
+            const QRect crop(qRound(point.x()), qRound(point.y()), qRound(340 * scale * dpr),
+                             qRound(45 * scale * dpr));
+            const auto masked =
+                session.window->grabWindow().copy(crop).convertToFormat(QImage::Format_RGB32);
+            QVERIFY(QQmlProperty(content, "layer.enabled").write(false));
+            QTest::qWait(100);
+            const auto direct =
+                session.window->grabWindow().copy(crop).convertToFormat(QImage::Format_RGB32);
+            double difference = 0;
+            for (int y = 0; y < masked.height(); ++y)
+                for (int x = 0; x < masked.width(); ++x)
+                    difference += qAbs(qGray(masked.pixel(x, y)) - qGray(direct.pixel(x, y)));
+            difference /= masked.width() * masked.height();
+            qInfo() << "popup scale" << scale << "texture" << texture << "mean pixel difference"
+                    << difference;
+            QVERIFY2(difference < 2., qPrintable(QString::number(difference)));
+            const auto captures = qEnvironmentVariable("ECHO_TEXT_CLARITY_CAPTURES");
+            if (!captures.isEmpty()) {
+                QDir().mkpath(captures);
+                QVERIFY(masked.save(captures + QString("/masked-%1.png").arg(scale)));
+                QVERIFY(direct.save(captures + QString("/direct-%1.png").arg(scale)));
+            }
+            QVERIFY(QMetaObject::invokeMethod(panel, "close"));
+            QTRY_VERIFY(panel.isNull());
+        }
+    }
     void badgeIconAndCountUseSameInkCenter()
     {
         ControlsSession session;

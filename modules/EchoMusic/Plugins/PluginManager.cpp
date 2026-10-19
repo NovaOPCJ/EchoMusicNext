@@ -34,6 +34,18 @@ QString raw(const QVariantMap &source, const QString &path)
     return "https://raw.githubusercontent.com/" + source.value("repository").toString() + "/HEAD/" +
            path;
 }
+bool sameMarketplaceSource(const QVariantMap &installed, const QVariantMap &entry)
+{
+    const auto origin = installed.value("origin").toMap();
+    return origin.value("kind") == "marketplace" && origin.value("id") == entry.value("sourceId");
+}
+bool availableUpdate(const QVariantMap &installed, const QVariantMap &entry)
+{
+    return !installed.isEmpty() && entry.value("compatible").toBool() &&
+           sameMarketplaceSource(installed, entry) &&
+           QVersionNumber::fromString(entry.value("version").toString()) >
+               QVersionNumber::fromString(installed.value("version").toString());
+}
 } // namespace
 PluginManager::PluginManager(PluginRuntime &runtime, QSettings &preferences, QObject *parent)
     : QObject(parent), m_runtime(runtime), m_preferences(preferences), m_catalog(this),
@@ -391,10 +403,7 @@ int PluginManager::updateCount() const
         const auto e = value.toMap();
         const auto current =
             m_runtime.record(m_runtime.installationForId(e.value("id").toString()));
-        if (!current.isEmpty() && e.value("compatible").toBool() &&
-            QVersionNumber::fromString(e.value("version").toString()) >
-                QVersionNumber::fromString(current.value("version").toString()) &&
-            !ids.contains(e.value("id").toString()) &&
+        if (availableUpdate(current, e) && !ids.contains(e.value("id").toString()) &&
             sourceIds().contains(e.value("sourceId").toString())) {
             ++count;
             ids.insert(e.value("id").toString());
@@ -420,15 +429,7 @@ void PluginManager::rebuild()
         const auto current =
             m_runtime.record(m_runtime.installationForId(e.value("id").toString()));
         const bool installed = !current.isEmpty();
-        const bool update =
-            installed && QVersionNumber::fromString(e.value("version").toString()) >
-                             QVersionNumber::fromString(current.value("version").toString());
-        const auto origin = current.value("origin").toMap();
-        if (installed &&
-            (origin.value("kind") != "marketplace" || origin.value("id") != e.value("sourceId"))) {
-            e["compatible"] = false;
-            e["error"] = tr("相同插件 ID 已由其他来源安装，请先卸载；不同来源不会共享私有数据");
-        }
+        const bool update = availableUpdate(current, e);
         e["installed"] = installed;
         e["updateAvailable"] = update;
         e["installedVersion"] = current.value("version");
@@ -437,6 +438,7 @@ void PluginManager::rebuild()
                                                             : tr("安装");
         e["status"] = !e.value("compatible").toBool() ? tr("不兼容")
                       : update                        ? tr("可更新")
+                      : installed                     ? tr("已安装")
                                                       : QString();
         e["busy"] = m_busy && e.value("key") == m_installingKey;
         e["stats"] = m_stats.value(e.value("key").toString());
@@ -571,9 +573,12 @@ bool PluginManager::install(const QString &key)
         return false;
     const auto current = m_runtime.record(m_runtime.installationForId(e.value("id").toString()));
     const auto origin = current.value("origin").toMap();
-    if (!current.isEmpty() &&
-        (origin.value("kind") != "marketplace" || origin.value("id") != e.value("sourceId"))) {
-        emit notice(tr("插件 ID 来源冲突，请先卸载已有插件"), true);
+    if (!current.isEmpty() && !sameMarketplaceSource(current, e)) {
+        emit notice(
+            origin.value("kind") != "marketplace"
+                ? tr("该插件已从本地安装")
+                : tr("该插件已从 %1 安装").arg(origin.value("name", tr("其他插件源")).toString()),
+            false, true);
         return false;
     }
     m_pendingPluginId = e.value("id").toString();
@@ -787,10 +792,7 @@ void PluginManager::updateAll()
     for (const auto &value : m_entries) {
         const auto e = value.toMap();
         auto current = m_runtime.record(m_runtime.installationForId(e.value("id").toString()));
-        if (!current.isEmpty() && e.value("compatible").toBool() &&
-            sourceIds().contains(e.value("sourceId").toString()) &&
-            QVersionNumber::fromString(e.value("version").toString()) >
-                QVersionNumber::fromString(current.value("version").toString()) &&
+        if (availableUpdate(current, e) && sourceIds().contains(e.value("sourceId").toString()) &&
             !ids.contains(e.value("id").toString())) {
             m_updateQueue.append(e.value("key").toString());
             ids.insert(e.value("id").toString());
@@ -932,23 +934,23 @@ void PluginManager::resolveShared()
         if (record.isEmpty()) {
             state = "failed";
             error = tr("插件源中未找到分享的插件");
-        } else if (!record.value("compatible").toBool()) {
-            state = "failed";
-            error = record.value("error").toString();
-        } else if (QVersionNumber::fromString(record.value("version").toString()) <
-                   QVersionNumber::fromString(m_shareTarget.value("version").toString())) {
-            state = "failed";
-            error = tr("插件源版本低于分享版本，请刷新后重试");
         } else {
             record["sharedVersion"] = m_shareTarget.value("version");
+            // EchoMusic warns about either direction of version drift; the
+            // catalog's manifest and artifact remain the installation authority.
+            const auto sharedVersion = m_shareTarget.value("version").toString();
+            const auto version = record.value("version").toString();
+            record["shareWarning"] =
+                sharedVersion != version
+                    ? tr("分享时版本为 v%1，当前插件源提供 v%2。").arg(sharedVersion, version)
+                : !record.value("compatible").toBool() ? record.value("error").toString()
+                                                       : QString();
             const auto current =
                 m_runtime.record(m_runtime.installationForId(record.value("id").toString()));
-            state = !current.isEmpty() &&
-                            QVersionNumber::fromString(current.value("version").toString()) >=
-                                QVersionNumber::fromString(record.value("version").toString())
-                        ? "installed"
-                        : "ready";
-            record["updateAvailable"] = !current.isEmpty();
+            const bool update = availableUpdate(current, record);
+            state = !current.isEmpty() && !update ? "installed" : "ready";
+            record["installedVersion"] = current.value("version");
+            record["updateAvailable"] = update;
         }
     }
     if (state != m_shareState || error != m_shareError || record != m_shareRecord) {

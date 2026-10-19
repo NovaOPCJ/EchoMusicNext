@@ -1,4 +1,4 @@
-//! /register/dev acknowledgement may contain data.dfid or an empty data array.
+//! /register/dev acknowledgement can omit the assigned identity even on status=1.
 //! Never invent identifiers or mark a device registered without its returned identity.
 use crate::{
     domain::RegisteredDevice,
@@ -20,7 +20,12 @@ struct Wire {
 pub fn convert(bytes: &[u8]) -> Result<RegisteredDevice, ApiError> {
     let wire: Wire = request::decode(bytes)?;
     request::success(wire.status, wire.error_code)?;
-    if wire.data.as_array().is_some_and(|v| v.is_empty()) {
+    if wire.data.as_array().is_some_and(|v| v.is_empty())
+        || wire
+            .data
+            .as_object()
+            .is_some_and(|v| !v.contains_key("dfid"))
+    {
         return Err(ApiError::new(
             "device_registration_unassigned",
             "设备服务未返回设备身份",
@@ -179,11 +184,14 @@ pub async fn request_wire(
             },
         )
         .await?;
-    Ok((
-        bytes.http_status,
-        envelope.decrypt(&bytes.bytes)?,
-        bytes.request_parameters,
-    ))
+    let plain = envelope
+        .decrypt(&bytes.bytes)
+        .map_err(|_| ApiError::new("device_registration_decrypt", "无法解密设备服务返回的数据"))?;
+    // The transport is encrypted binary, independently of its MIME label.
+    // Record only the decrypted JSON through the existing redactor, so an
+    // unassigned identity is distinguishable from damaged ciphertext in logs.
+    crate::util::response_logging::record(&plain, bytes.http_status, "/register/dev:decrypted");
+    Ok((bytes.http_status, plain, bytes.request_parameters))
 }
 
 pub async fn execute(client: &ApiClient, identity: &Identity) -> Result<Vec<u8>, ApiError> {
@@ -193,6 +201,20 @@ pub async fn execute(client: &ApiClient, identity: &Identity) -> Result<Vec<u8>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_assignment_remains_failure_instead_of_generic_decode() {
+        for data in [serde_json::json!([]), serde_json::json!({})] {
+            let bytes =
+                serde_json::to_vec(&serde_json::json!({"status":1,"error_code":0,"data":data}))
+                    .unwrap();
+            assert_eq!(
+                convert(&bytes).err().unwrap().kind,
+                "device_registration_unassigned"
+            );
+        }
+        let failure = br#"{"status":0,"error_code":123,"data":{}}"#;
+        assert_eq!(convert(failure).err().unwrap().kind, "business");
+    }
     #[test]
     fn request_json_and_aes_bytes_match_source_module_golden() {
         let vector: serde_json::Value = serde_json::from_str(include_str!(

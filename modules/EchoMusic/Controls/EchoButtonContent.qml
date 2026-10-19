@@ -21,6 +21,8 @@ Item {
     property real spacing: 8
     property int horizontalAlignment: Qt.AlignHCenter
     property bool glyphAfterText: false
+    property bool wrap: false
+    property bool glyphAtFirstLine: false
     readonly property bool truncated: label.truncated
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
@@ -60,8 +62,10 @@ Item {
             Layout.preferredHeight: content.glyphSize
             Layout.fillHeight: true
             EchoIcon {
+                id: glyphIcon
                 objectName: "buttonGlyph"
-                anchors.centerIn: parent
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: content.glyphAtFirstLine && content.wrap ? label.y + label.firstLineInkCenter - parent.y - glyphIcon.visualCenter().y : (parent.height - height) / 2
                 anchors.alignWhenCentered: false
                 width: content.glyphSize
                 height: content.glyphSize
@@ -81,6 +85,7 @@ Item {
             Layout.fillHeight: true
             Layout.minimumWidth: 0
             fillTextWidth: true
+            wrap: content.wrap
         }
     }
 }

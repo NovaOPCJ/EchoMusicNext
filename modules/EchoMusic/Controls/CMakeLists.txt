@@ -14,6 +14,8 @@ qt_add_qml_module(
     EchoEffectOwnership.cpp
     EchoPageScrollMetrics.h
     EchoPageScrollMetrics.cpp
+    EchoWheelScroll.h
+    EchoWheelScroll.cpp
     EchoIconSource.h
     EchoIconSource.cpp
     EchoColorValue.h

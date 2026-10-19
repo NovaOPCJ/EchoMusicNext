@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 
 // A page viewport, not another scrolling view. ListView/GridView keep their
 // own viewport, delegate pool and attached scrollbar connection.
@@ -42,6 +43,11 @@ Item {
     }
     signal scrolled
     clip: true
+    Binding {
+        target: page.scrollView ? page.scrollView.EchoWheelScroll : null
+        property: "enabled"
+        value: page.pageActive
+    }
 
     function firstY(view: Flickable): real {
         return view.originY - view.topMargin;
@@ -72,7 +78,7 @@ Item {
         // Extent changes (e.g. a responsive sidebar animation) can schedule a
         // restore during user movement. Qt owns that movement and its bounds;
         // refreshing the cache must not overwrite/cancel the active timeline.
-        if (scrollView.moving) {
+        if (scrollView.moving || scrollView.EchoWheelScroll.running) {
             capturePosition();
             return;
         }
@@ -132,9 +138,13 @@ Item {
             return;
         }
         const delta = event.pixelDelta.y || event.angleDelta.y / 120 * EchoPageScrollMetrics.wheelStep;
-        if (delta !== 0)
-            scrollBy(-delta);
-        event.accepted = delta !== 0;
+        if (event.pixelDelta.y) {
+            if (delta !== 0)
+                scrollBy(-delta);
+            event.accepted = delta !== 0;
+        } else {
+            event.accepted = scrollView.EchoWheelScroll.scrollBy(-delta);
+        }
     }
     function resetPosition() {
         state.adjusting = true;

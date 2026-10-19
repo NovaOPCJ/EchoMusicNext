@@ -23,9 +23,6 @@ use crate::transition_filter::DeckFilterOperation;
 const RENDER_BLOCK_FRAMES: usize = 2_048;
 /// Frames of B decoded ahead of the mixer's demand.
 const B_READAHEAD_FRAMES: usize = 8_192;
-/// Upper bound on render iterations per `step` so command handling stays responsive.
-const MAX_MIX_ITERATIONS_PER_STEP: usize = 1;
-
 /// The next track, prepared for a transition: decoder positioned at `plan.b_start_secs`
 /// with `predecoded` covering the first frames from there.
 pub struct ArmedTransition {
@@ -338,73 +335,68 @@ impl TransitionRunner {
                     if shared.should_stop_decoding()
                         || !shared.is_decode_generation_current(self.generation) =>
                 {
-                    return RunnerStep::Continue
+                    return RunnerStep::Continue;
                 }
                 Err(err) => return RunnerStep::Failed(err),
             }
         }
-        for _ in 0..MAX_MIX_ITERATIONS_PER_STEP {
-            if shared.should_stop_decoding()
-                || !shared.is_decode_generation_current(self.generation)
-            {
-                return RunnerStep::Continue;
-            }
-            // Feed A up to the end of its window. Decode errors on the outgoing track are
-            // treated like the main loop treats them: interrupt / stop / stale generation
-            // simply yield, a broken tail ends the deck early instead of failing the mix.
-            if !self.a.ended && self.mixer.a_queued_frames() < B_READAHEAD_FRAMES {
-                if let Err(err) = self.feed_a(shared, a_decoder, RENDER_BLOCK_FRAMES * 2) {
-                    if a_decoder
-                        .interrupt_handle()
-                        .load(std::sync::atomic::Ordering::Acquire)
-                        || shared.should_stop_decoding()
-                        || !shared.is_decode_generation_current(self.generation)
-                    {
-                        return RunnerStep::Continue;
-                    }
-                    crate::decoder::emit_decode_warning(format!(
-                        "outgoing track decode error during transition; ending deck A early: {err}"
-                    ));
-                    self.end_a();
-                }
-            }
-            // Feed B until the mixer has a comfortable read-ahead.
-            if !self.b.ended && self.mixer.b_queued_frames() < B_READAHEAD_FRAMES {
-                if let Err(err) = self.feed_b(shared, B_READAHEAD_FRAMES) {
-                    let interrupted = self.b.decoder.as_ref().is_some_and(|decoder| {
-                        decoder
-                            .interrupt_handle()
-                            .load(std::sync::atomic::Ordering::Acquire)
-                    });
-                    if interrupted
-                        || shared.should_stop_decoding()
-                        || !shared.is_decode_generation_current(self.generation)
-                    {
-                        return RunnerStep::Continue;
-                    }
-                    return RunnerStep::Failed(err);
-                }
-            }
-            let output = self.mixer.render(RENDER_BLOCK_FRAMES);
-            let produced = !output.samples.is_empty();
-            if produced {
-                let frames = output.samples.len() / self.mix_format.channels.max(1);
-                self.b.position_secs += output.b_frames_consumed as f64 * f64::from(self.speed)
-                    / f64::from(self.mix_format.sample_rate.max(1));
-                self.b.produced_frames +=
-                    (output.b_frames_consumed as f64 * f64::from(self.speed)).round() as u64;
-                self.mixed_frames += frames as u64;
-                if !self.push_mixed(shared, output.samples) {
-                    return RunnerStep::Continue;
-                }
-            }
-            if self.mixer.is_finished() || (!produced && self.a.ended && self.b.ended) {
-                return self.finish(shared);
-            }
-            // One block per step keeps command latency at one block; starvation returns
-            // as well so the caller can service commands / wait for input.
+        if shared.should_stop_decoding() || !shared.is_decode_generation_current(self.generation) {
             return RunnerStep::Continue;
         }
+        // Feed A up to the end of its window. Decode errors on the outgoing track are
+        // treated like the main loop treats them: interrupt / stop / stale generation
+        // simply yield, a broken tail ends the deck early instead of failing the mix.
+        if !self.a.ended && self.mixer.a_queued_frames() < B_READAHEAD_FRAMES {
+            if let Err(err) = self.feed_a(shared, a_decoder, RENDER_BLOCK_FRAMES * 2) {
+                if a_decoder
+                    .interrupt_handle()
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    || shared.should_stop_decoding()
+                    || !shared.is_decode_generation_current(self.generation)
+                {
+                    return RunnerStep::Continue;
+                }
+                crate::decoder::emit_decode_warning(format!(
+                    "outgoing track decode error during transition; ending deck A early: {err}"
+                ));
+                self.end_a();
+            }
+        }
+        // Feed B until the mixer has a comfortable read-ahead.
+        if !self.b.ended && self.mixer.b_queued_frames() < B_READAHEAD_FRAMES {
+            if let Err(err) = self.feed_b(shared, B_READAHEAD_FRAMES) {
+                let interrupted = self.b.decoder.as_ref().is_some_and(|decoder| {
+                    decoder
+                        .interrupt_handle()
+                        .load(std::sync::atomic::Ordering::Acquire)
+                });
+                if interrupted
+                    || shared.should_stop_decoding()
+                    || !shared.is_decode_generation_current(self.generation)
+                {
+                    return RunnerStep::Continue;
+                }
+                return RunnerStep::Failed(err);
+            }
+        }
+        let output = self.mixer.render(RENDER_BLOCK_FRAMES);
+        let produced = !output.samples.is_empty();
+        if produced {
+            let frames = output.samples.len() / self.mix_format.channels.max(1);
+            self.b.position_secs += output.b_frames_consumed as f64 * f64::from(self.speed)
+                / f64::from(self.mix_format.sample_rate.max(1));
+            self.b.produced_frames +=
+                (output.b_frames_consumed as f64 * f64::from(self.speed)).round() as u64;
+            self.mixed_frames += frames as u64;
+            if !self.push_mixed(shared, output.samples) {
+                return RunnerStep::Continue;
+            }
+        }
+        if self.mixer.is_finished() || (!produced && self.a.ended && self.b.ended) {
+            return self.finish(shared);
+        }
+        // One block per step keeps command latency at one block; starvation returns
+        // as well so the caller can service commands / wait for input.
         RunnerStep::Continue
     }
 
@@ -432,12 +424,24 @@ impl TransitionRunner {
                 .sum::<f64>()
                 / samples.len().max(1) as f64)
                 .sqrt();
-            crate::decoder::emit_decode_info(shared, &format!(
-                "transition loudness mix: request={} outgoing_seq={} incoming_seq={} generation={} stage={} output_frame={} a_trim={:.6} b_trim={:.6} pre_reference_peak={peak:.6} pre_reference_rms={rms:.6} dsp=per-deck",
-                self.rearm.request_id, self.rearm.outgoing_seq, self.incoming_seq(), self.generation,
-                if !self.boundary_marked { "start" } else { "midpoint" }, self.mixed_frames,
-                self.rearm.a_gain, self.rearm.b_gain,
-            ));
+            crate::decoder::emit_decode_info(
+                shared,
+                &format!(
+                    "transition loudness mix: request={} outgoing_seq={} incoming_seq={} generation={} stage={} output_frame={} a_trim={:.6} b_trim={:.6} pre_reference_peak={peak:.6} pre_reference_rms={rms:.6} dsp=per-deck",
+                    self.rearm.request_id,
+                    self.rearm.outgoing_seq,
+                    self.incoming_seq(),
+                    self.generation,
+                    if !self.boundary_marked {
+                        "start"
+                    } else {
+                        "midpoint"
+                    },
+                    self.mixed_frames,
+                    self.rearm.a_gain,
+                    self.rearm.b_gain,
+                ),
+            );
             if self.boundary_marked {
                 self.midpoint_logged = true;
             }

@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 
 // Auto-height for a vertical, sectionless list with a bounded viewport. A virtual
 // ListView's contentHeight estimates unloaded rows, so it cannot size its own
@@ -9,6 +10,7 @@ import QtQuick
 // measurement delegates, text-layout copies, timers or scans beyond the mounted item budget are used.
 ListView {
     id: view
+    EchoWheelScroll.enabled: true
     property real maximumViewportHeight: 320
     property real minimumViewportHeight: 0
     property real emptyViewportHeight: 0

@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import EchoMusic.Controls
 import QtQuick.Templates as T
 
 // Declare as ScrollBar.vertical on the original Flickable/ScrollView so Qt
@@ -13,6 +14,8 @@ EchoScrollBar {
     objectName: "popupScrollBar"
     required property T.Popup surface
     required property Item view
+    wheelView: (view as Flickable) || ((view as T.ScrollView) ? (view as T.ScrollView).contentItem as Flickable : null)
+    angleWheelEnabled: surface.visible
     readonly property EchoFloatingSurface frame: surface.visible ? surface.background as EchoFloatingSurface : null
     // The thumb lives beside the content layer. Keep its ends clear of an
     // outer corner when a flush viewport reaches the panel edge.

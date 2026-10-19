@@ -1,7 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=EchoMusicNext
-Exec=echomusicnext
+Exec=echomusicnext %U
 Icon=@ECHO_APPLICATION_ID@
 Terminal=false
 Categories=AudioVideo;Audio;Player;
+MimeType=x-scheme-handler/echomusicnext;application/vnd.echomusicnext.mod+zip;

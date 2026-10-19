@@ -97,6 +97,7 @@ void EchoTextInkMetrics::measure()
         }
         hasInk_ = !bounds.isEmpty();
         inkCenter_ = hasInk_ ? bounds.center().y() : 0;
+        firstLineInkCenter_ = inkCenter_;
         emit metricsChanged();
         return;
     }
@@ -106,21 +107,23 @@ void EchoTextInkMetrics::measure()
     qreal y = 0, firstBaseline = 0;
     QRectF ink;
     bool first = true;
+    firstLineInkCenter_ = 0;
     while (true) {
         auto line = layout.createLine();
         if (!line.isValid())
             break;
         line.setLineWidth(wrap_ ? std::max(qreal(1), width_) : 1e9);
         line.setPosition({0, y});
-        if (first) {
-            firstBaseline = line.ascent();
-            first = false;
-        }
         // Qt's native tight bounds include shaping and font fallback. Only
         // wrapping/line spacing needs QTextLayout; do not walk individual glyphs
         // or reconstruct their outlines to implement ordinary UI alignment.
         const auto lineText = layout.text().mid(line.textStart(), line.textLength());
         const auto bounds = fm.tightBoundingRect(lineText, option);
+        if (first) {
+            firstBaseline = line.ascent();
+            firstLineInkCenter_ = bounds.isEmpty() ? 0 : bounds.center().y();
+            first = false;
+        }
         if (!bounds.isEmpty())
             ink = ink.united(bounds.translated(0, line.y() + line.ascent()));
         y += lineHeight_ > 0 ? lineHeight_ : line.height();

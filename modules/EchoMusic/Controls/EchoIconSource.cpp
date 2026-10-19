@@ -72,4 +72,20 @@ QUrl EchoIconSource::urlFor(const QString &glyph, const QColor &color) const
     return QUrl(QStringLiteral("image://echo-icons/%1/%2")
                     .arg(glyph, QString::number(color.rgba(), 16).rightJustified(8, '0')));
 }
+QPointF EchoIconSource::visualCenter(const QString &glyph, const QSizeF &size) const
+{
+    const QPointF center(size.width() / 2, size.height() / 2);
+    const auto path = resourceFor(glyph);
+    if (path.isEmpty() || size.isEmpty())
+        return center;
+    QSvgRenderer renderer(path);
+    const auto view = renderer.viewBoxF();
+    const auto ink = renderer.boundsOnElement(QString());
+    if (!renderer.isValid() || view.isEmpty() || ink.isEmpty())
+        return center;
+    // EchoIcon requests a square raster, then fits it in the item. Native SVG
+    // bounds include the stroke; a triangle's ink need not center in its viewBox.
+    const qreal scale = qMin(size.width(), size.height()) / qMax(view.width(), view.height());
+    return center + (ink.center() - view.center()) * scale;
+}
 } // namespace EchoMusic

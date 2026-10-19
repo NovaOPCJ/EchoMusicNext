@@ -8,7 +8,7 @@ endif()
 project(
     EchoMusicNext
     VERSION 0.1.0
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 if(APPLE)
     enable_language(OBJCXX)
@@ -49,7 +49,18 @@ include(CTest)
 include(cmake/Rust.cmake)
 
 include(cmake/ProjectOptions.cmake)
+set(ECHO_RELEASE_VERSION
+    "${PROJECT_VERSION}"
+    CACHE STRING "Full release version including prerelease suffix"
+)
+string(REGEX REPLACE "[-+].*$" "" ECHO_RELEASE_CORE "${ECHO_RELEASE_VERSION}")
+if(NOT ECHO_RELEASE_CORE STREQUAL PROJECT_VERSION)
+    message(FATAL_ERROR "ECHO_RELEASE_VERSION must use the declared project version")
+endif()
 option(ECHO_DISTRIBUTION_BUILD "Enable packaged application lifecycle actions" OFF)
+include(cmake/BuildIdentity.cmake)
+include(cmake/Crashpad.cmake)
+add_subdirectory(tools/update-helper)
 include(cmake/Curl.cmake)
 add_subdirectory(services)
 add_subdirectory(modules)

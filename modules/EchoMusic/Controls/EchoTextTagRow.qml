@@ -24,6 +24,7 @@ Item {
     property int horizontalAlignment: Text.AlignLeft
     property alias textItem: label
     readonly property alias textBox: textSlot
+    readonly property real firstLineInkCenter: flow.y + textSlot.y + label.y + label.baselineOffset + ink.firstLineInkCenterFromBaseline
     implicitWidth: ink.naturalWidth + (tagRow.implicitWidth > 0 ? textTagSpacing + tagRow.implicitWidth : 0)
     implicitHeight: flow.implicitHeight
     data: [

@@ -71,6 +71,20 @@ void WindowsWindowBackdrop::attach(QWindow *window)
     if (window)
         m_visibilityConnection =
             connect(window, &QWindow::visibilityChanged, this, [this] { queueRepair(); });
+    applyCorners();
+}
+void WindowsWindowBackdrop::applyCorners()
+{
+    if (m_build < 22000 || !m_handle || !IsWindow(m_handle))
+        return;
+    // Frameless Qt windows do not qualify for DWM's automatic heuristics.
+    // This documented opt-in is independent of the user's Acrylic preference;
+    // DWM still owns square maximized/snapped/full-screen corners.
+    const DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_ROUND;
+    const auto result = DwmSetWindowAttribute(m_handle, DWMWA_WINDOW_CORNER_PREFERENCE, &preference,
+                                              sizeof(preference));
+    if (FAILED(result))
+        qWarning("DWM rounded-corner request failed: HRESULT=0x%08lx", DWORD(result));
 }
 bool WindowsWindowBackdrop::supported() const
 {
@@ -139,16 +153,17 @@ bool WindowsWindowBackdrop::material(bool enabled)
 }
 void WindowsWindowBackdrop::queueRepair()
 {
-    if (m_repairQueued || !m_enabled || m_build < 22621)
+    if (m_repairQueued || m_build < 22000)
         return;
     m_repairQueued = true;
-    // Native filters run before Qt's handler, which can restore DWM_BB.
-    // Repair afterwards; the QObject context cancels this callback on teardown.
+    // Reassert DWM corner/material policy after Qt's native handler. The
+    // QObject context cancels this callback on teardown.
     QMetaObject::invokeMethod(
         this,
         [this] {
             m_repairQueued = false;
-            if (m_enabled && m_window && m_handle && IsWindow(m_handle)) {
+            applyCorners();
+            if (m_enabled && m_build >= 22621 && m_window && m_handle && IsWindow(m_handle)) {
                 if (material(true)) {
                     m_error.clear();
                     emit completed({});
@@ -169,10 +184,11 @@ bool WindowsWindowBackdrop::nativeEventFilter(const QByteArray &, void *message,
     if (event->message == WM_NCDESTROY) {
         m_handle = nullptr;
         m_enabled = m_suspended = false;
-    } else if (m_enabled && m_build >= 22621 &&
+    } else if (m_build >= 22000 &&
                (event->message == WM_DWMCOMPOSITIONCHANGED || event->message == WM_STYLECHANGED)) {
         queueRepair();
-    } else if (m_enabled && m_build < 22621) {
+    }
+    if (m_enabled && m_build < 22621) {
         // Suspend expensive Accent Acrylic during the OS modal move/size loop,
         // including stationary mouse pauses; ordinary geometry signals cannot do this.
         if (event->message == WM_ENTERSIZEMOVE) {

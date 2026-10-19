@@ -4,6 +4,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import QtQuick.Effects
 import EchoMusic.Theme
+import EchoMusic.Controls
 import EchoMusic.Playback
 
 Item {
@@ -181,6 +182,7 @@ Item {
     }
     ListView {
         id: lines
+        EchoWheelScroll.enabled: viewport.resourceActive
         objectName: "playbackLyricList"
         anchors.fill: parent
         clip: true

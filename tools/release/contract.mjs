@@ -1,0 +1,152 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const appId = 'io.github.hoowhoami.echomusicnext';
+export const matrix = [
+  { platform: 'macOS', arch: 'arm64', runner: 'macos-15', kinds: ['dmg', 'zip'] },
+  { platform: 'macOS', arch: 'x64', runner: 'macos-15-intel', kinds: ['dmg', 'zip'] },
+  {
+    platform: 'Linux',
+    arch: 'x64',
+    runner: 'ubuntu-22.04',
+    kinds: ['appimage', 'deb', 'rpm', 'pacman', 'tar'],
+  },
+  {
+    platform: 'Linux',
+    arch: 'arm64',
+    runner: 'ubuntu-22.04-arm',
+    kinds: ['appimage', 'deb', 'rpm', 'pacman', 'tar'],
+  },
+  { platform: 'Windows', arch: 'x64', runner: 'windows-2022', kinds: ['nsis'] },
+  { platform: 'Windows', arch: 'arm64', runner: 'windows-11-arm', kinds: ['nsis'] },
+];
+const extensions = {
+  dmg: '.dmg',
+  zip: '.zip',
+  appimage: '.AppImage',
+  deb: '.deb',
+  rpm: '.rpm',
+  pacman: '.pkg.tar.zst',
+  tar: '.tar.gz',
+  nsis: '-Setup.exe',
+};
+export function validVersion(version) {
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
+      version,
+    );
+  return Boolean(
+    match &&
+    !(match[4] || '')
+      .split('.')
+      .some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith('0')),
+  );
+}
+export function releaseVersion(repository = root, ref = process.env.GITHUB_REF || '') {
+  const cmake = fs.readFileSync(path.join(repository, 'CMakeLists.txt'), 'utf8');
+  const base = /project\(\s*EchoMusicNext\s+VERSION\s+([0-9.]+)/.exec(cmake)?.[1];
+  const cargo = /^version\s*=\s*"([^"]+)"/m.exec(
+    fs.readFileSync(path.join(repository, 'Cargo.toml'), 'utf8'),
+  )?.[1];
+  if (!base || base !== cargo) throw new Error('CMake and Cargo application versions must match');
+  const version = ref.startsWith('refs/tags/')
+    ? ref.slice('refs/tags/'.length).replace(/^v/, '')
+    : base;
+  if (
+    !validVersion(version) ||
+    version.split(/[-+]/)[0] !== base ||
+    (ref.startsWith('refs/tags/') && !ref.startsWith('refs/tags/v'))
+  )
+    throw new Error('Tag version must match the declared application version');
+  return version;
+}
+export function assetName(version, platform, arch, kind) {
+  if (
+    !validVersion(version) ||
+    !matrix.some(
+      (item) => item.platform === platform && item.arch === arch && item.kinds.includes(kind),
+    )
+  )
+    throw new Error('Invalid release target');
+  return `EchoMusicNext-${version}-${platform}-${arch}${extensions[kind]}`;
+}
+export function manifestName(platform, arch) {
+  return `update-${platform}-${arch}.json`;
+}
+export async function sha512(file) {
+  const hash = crypto.createHash('sha512');
+  for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
+}
+export async function writeManifest(directory, version, platform, arch) {
+  const target = matrix.find((item) => item.platform === platform && item.arch === arch);
+  if (!target) throw new Error('Unsupported release target');
+  const assets = [];
+  for (const kind of target.kinds) {
+    const name = assetName(version, platform, arch, kind),
+      file = path.join(directory, name);
+    const size = fs.statSync(file).size;
+    if (size <= 0 || size > 4 * 1024 ** 3) throw new Error(`Invalid package size: ${name}`);
+    assets.push({ name, kind, size, sha512: await sha512(file) });
+  }
+  const manifest = { schema: 1, applicationId: appId, version, platform, arch, assets };
+  fs.writeFileSync(
+    path.join(directory, manifestName(platform, arch)),
+    JSON.stringify(manifest, null, 2) + '\n',
+  );
+  return manifest;
+}
+export async function validateRelease(directory, version) {
+  if (!validVersion(version)) throw new Error('Invalid release version');
+  const expected = new Set();
+  for (const target of matrix) {
+    const name = manifestName(target.platform, target.arch);
+    expected.add(name);
+    const manifest = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+    if (
+      manifest.schema !== 1 ||
+      manifest.applicationId !== appId ||
+      manifest.version !== version ||
+      manifest.platform !== target.platform ||
+      manifest.arch !== target.arch ||
+      !Array.isArray(manifest.assets) ||
+      manifest.assets.length !== target.kinds.length
+    )
+      throw new Error(`Invalid manifest: ${name}`);
+    const kinds = new Set();
+    for (const asset of manifest.assets) {
+      if (
+        kinds.has(asset.kind) ||
+        !target.kinds.includes(asset.kind) ||
+        asset.name !== assetName(version, target.platform, target.arch, asset.kind)
+      )
+        throw new Error(`Invalid asset in ${name}`);
+      kinds.add(asset.kind);
+      expected.add(asset.name);
+      const file = path.join(directory, asset.name),
+        stat = fs.lstatSync(file);
+      if (
+        !stat.isFile() ||
+        stat.isSymbolicLink() ||
+        stat.size !== asset.size ||
+        (await sha512(file)) !== asset.sha512
+      )
+        throw new Error(`Package verification failed: ${asset.name}`);
+    }
+  }
+  const actual = fs.readdirSync(directory);
+  if (actual.some((name) => !expected.has(name)) || actual.length !== expected.size)
+    throw new Error('Unexpected or missing release files');
+  return [...expected];
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [command, directory, version] = process.argv.slice(2);
+  if (command === 'version') console.log(releaseVersion());
+  else if (command === 'validate') {
+    const files = await validateRelease(directory, version);
+    console.log(`Verified ${files.length} release files`);
+  } else if (command === 'matrix') console.log(JSON.stringify({ include: matrix }));
+  else throw new Error('Expected version, validate, or matrix');
+}

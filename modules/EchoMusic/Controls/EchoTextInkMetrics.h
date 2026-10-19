@@ -22,6 +22,8 @@ class EchoTextInkMetrics : public QObject
     Q_PROPERTY(QString displayText READ displayText NOTIFY metricsChanged FINAL)
     Q_PROPERTY(qreal naturalWidth READ naturalWidth NOTIFY naturalWidthChanged FINAL)
     Q_PROPERTY(qreal inkCenterFromBaseline READ inkCenterFromBaseline NOTIFY metricsChanged FINAL)
+    Q_PROPERTY(qreal firstLineInkCenterFromBaseline READ firstLineInkCenterFromBaseline NOTIFY
+                   metricsChanged FINAL)
     Q_PROPERTY(bool hasInk READ hasInk NOTIFY metricsChanged FINAL)
 public:
     explicit EchoTextInkMetrics(QObject *parent = nullptr) : QObject(parent) {}
@@ -61,6 +63,10 @@ public:
     {
         return inkCenter_;
     }
+    qreal firstLineInkCenterFromBaseline() const
+    {
+        return firstLineInkCenter_;
+    }
     bool hasInk() const
     {
         return hasInk_;
@@ -87,7 +93,7 @@ private:
     QString text_, displayText_;
     QString outlineText_;
     QRectF outlineBounds_;
-    qreal width_ = 0, lineHeight_ = 0, naturalWidth_ = 0, inkCenter_ = 0;
+    qreal width_ = 0, lineHeight_ = 0, naturalWidth_ = 0, inkCenter_ = 0, firstLineInkCenter_ = 0;
     bool wrap_ = false, elide_ = false, hasInk_ = false;
 };
 } // namespace EchoMusic

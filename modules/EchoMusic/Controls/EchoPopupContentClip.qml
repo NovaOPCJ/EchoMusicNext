@@ -30,6 +30,10 @@ QtObject {
     readonly property bool needed: frame !== null && content !== null && paintedRect.width > 0 && paintedRect.height > 0 && (!contains(paintedRect.x, paintedRect.y) || !contains(paintedRect.x + paintedRect.width, paintedRect.y) || !contains(paintedRect.x, paintedRect.y + paintedRect.height) || !contains(paintedRect.x + paintedRect.width, paintedRect.y + paintedRect.height))
     readonly property bool active: needed && frame.resourceActive
     readonly property QtObject contentLayer: content ? content.layer : null
+    // A layer's default texture follows local item size, not Popup.scale.
+    // Render text at its final pixel size instead of magnifying a smaller FBO.
+    readonly property real renderScale: Math.abs(surface.scale) * (content ? content.Screen.devicePixelRatio : 1)
+    readonly property size textureSize: Qt.size(Math.max(1, Math.ceil(paintedRect.width * renderScale)), Math.max(1, Math.ceil(paintedRect.height * renderScale)))
     property Binding layerEnabled: Binding {
         target: clipping.contentLayer
         property: "enabled"
@@ -41,6 +45,13 @@ QtObject {
         target: clipping.contentLayer
         property: "smooth"
         value: true
+        when: clipping.active
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+    property Binding layerTextureSize: Binding {
+        target: clipping.contentLayer
+        property: "textureSize"
+        value: clipping.textureSize
         when: clipping.active
         restoreMode: Binding.RestoreBindingOrValue
     }
@@ -73,6 +84,7 @@ QtObject {
             objectName: "popupContentRoundedMask"
             layer.enabled: true
             layer.smooth: true
+            layer.textureSize: clipping.textureSize
             Rectangle {
                 x: clipping.frameRect.x
                 y: clipping.frameRect.y

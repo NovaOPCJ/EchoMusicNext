@@ -14,11 +14,36 @@ target_link_libraries(
 add_test(NAME back-to-top COMMAND echo-back-to-top-test)
 set_tests_properties(back-to-top PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
 qt_add_executable(echo-about-service-test AboutServiceTest.cpp)
+qt_add_qml_module(
+    echo-about-service-test URI EchoMusic.UpdateTests QML_FILES UpdateDialogHarness.qml
+)
 target_link_libraries(
-    echo-about-service-test PRIVATE echo_settings echo_network Qt6::Gui Qt6::Network Qt6::Test
+    echo-about-service-test
+    PRIVATE echo_settings
+            echo_settingsplugin
+            echo_controls
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            echo_network
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::Test
 )
 add_test(NAME about-service COMMAND echo-about-service-test)
 set_tests_properties(about-service PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+find_program(ECHO_NODE_EXECUTABLE NAMES node REQUIRED)
+add_test(NAME update-release-contract COMMAND ${ECHO_NODE_EXECUTABLE} --test
+                                              ${PROJECT_SOURCE_DIR}/tools/release/contract.test.mjs
+)
+add_test(
+    NAME update-helper
+    COMMAND
+        ${CMAKE_COMMAND} -E env
+        "ECHO_UPDATE_HELPER_PROBE=$<TARGET_FILE:echo-update-helper-test-probe>"
+        ${ECHO_NODE_EXECUTABLE} --test ${PROJECT_SOURCE_DIR}/tools/update-helper/helper.test.mjs
+)
+set_tests_properties(update-helper PROPERTIES TIMEOUT 30)
 qt_add_executable(echo-shortcut-service-test ShortcutServiceTest.cpp)
 qt_add_executable(echo-settings-backup-test SettingsBackupTest.cpp)
 target_link_libraries(
@@ -392,6 +417,17 @@ target_link_libraries(echo-logging-test PRIVATE echo_logging echo_bridge Qt6::Qm
 add_test(NAME logging COMMAND echo-logging-test)
 set_tests_properties(logging PROPERTIES TIMEOUT 30)
 echo_copy_rust_runtime(echo-logging-test)
+qt_add_executable(echo-crash-probe CrashProbe.cpp)
+target_link_libraries(echo-crash-probe PRIVATE echo_logging Qt6::Core)
+echo_copy_rust_runtime(echo-crash-probe)
+echo_copy_crash_runtime(echo-crash-probe)
+qt_add_executable(echo-crash-diagnostics-test CrashDiagnosticsTest.cpp)
+target_link_libraries(
+    echo-crash-diagnostics-test PRIVATE echo_crash_diagnostics Qt6::Core Qt6::Test
+)
+add_dependencies(echo-crash-diagnostics-test echo-crash-probe)
+add_test(NAME crash-diagnostics COMMAND echo-crash-diagnostics-test)
+set_tests_properties(crash-diagnostics PROPERTIES TIMEOUT 180)
 
 qt_add_executable(echo-playback-test PlaybackTest.cpp)
 qt_add_executable(echo-player-engine-settings-test PlayerEngineSettingsTest.cpp)

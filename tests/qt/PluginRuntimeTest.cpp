@@ -14,6 +14,7 @@
 #include <QProcessEnvironment>
 #include <cmath>
 #include <ctime>
+#include <optional>
 #include "PlaybackService.h"
 #include "AccountService.h"
 #include "ShellController.h"
@@ -176,6 +177,482 @@ class PluginRuntimeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void sharedPluginVersionWarnings_data()
+    {
+        QTest::addColumn<QString>("sharedVersion");
+        QTest::addColumn<bool>("compatible");
+        QTest::newRow("same") << QString("1.0.0") << true;
+        QTest::newRow("source-newer") << QString("0.9.0") << true;
+        QTest::newRow("source-older") << QString("2.0.0") << true;
+        QTest::newRow("incompatible") << QString("1.0.0") << false;
+        QTest::newRow("version-warning-first") << QString("2.0.0") << false;
+    }
+    void sharedPluginVersionWarnings()
+    {
+        QFETCH(QString, sharedVersion);
+        QFETCH(bool, compatible);
+        Host host;
+        PluginManager manager(host.runtime, host.settings);
+        const auto source = manager.m_sources.first().toMap();
+        manager.m_entries = {QVariantMap{{"id", "test.share"},
+                                         {"path", "plugins/share"},
+                                         {"sourceId", source.value("id")},
+                                         {"version", "1.0.0"},
+                                         {"compatible", compatible},
+                                         {"error", "缺少所需能力"}}};
+        manager.m_shareTarget = {{"id", "test.share"},
+                                 {"path", "plugins/share"},
+                                 {"sourceId", source.value("id")},
+                                 {"version", sharedVersion}};
+        manager.resolveShared();
+        QCOMPARE(manager.shareState(), "ready");
+        QVERIFY(manager.shareError().isEmpty());
+        QCOMPARE(manager.shareRecord().value("sharedVersion").toString(), sharedVersion);
+        const auto expected =
+            sharedVersion != "1.0.0"
+                ? QString("分享时版本为 v%1，当前插件源提供 v1.0.0。").arg(sharedVersion)
+            : compatible ? QString()
+                         : QString("缺少所需能力");
+        QCOMPARE(manager.shareRecord().value("shareWarning").toString(), expected);
+        if (!compatible)
+            QVERIFY(!manager.installShared());
+    }
+    void sharedPluginPagePresentationAndRedirect()
+    {
+        Host host;
+        host.theme.setMotionEnabled(false);
+        PluginManager manager(host.runtime, host.settings);
+        const auto source = manager.m_sources.first().toMap();
+        QImage artwork(64, 64, QImage::Format_RGB32);
+        artwork.fill(QColor("#cf4084"));
+        const auto iconPath = host.temporary.path() + "/icon.png";
+        QVERIFY(artwork.save(iconPath));
+        QVariantMap entry{{"id", "test.share"},
+                          {"key", "share"},
+                          {"path", "plugins/share"},
+                          {"sourceId", source.value("id")},
+                          {"sourceName", "EchoMusicNext 插件源"},
+                          {"sourceUrl", source.value("url")},
+                          {"name", "分享插件"},
+                          {"description", "展示插件图标与完整描述。这里保留插件源提供的说明，长内容"
+                                          "会自然换行，并可随页面滚动。"},
+                          {"iconUrl", QUrl::fromLocalFile(iconPath)},
+                          {"version", "1.0.0"},
+                          {"compatible", true}};
+        manager.m_entries = {entry};
+        manager.m_shareTarget = {{"id", "test.share"},
+                                 {"path", "plugins/share"},
+                                 {"sourceId", source.value("id")},
+                                 {"sourceUrl", source.value("url")},
+                                 {"version", "2.0.0"}};
+        manager.resolveShared();
+        host.router.registerPage(
+            {"plugin-share-resolve", "/plugins/share", QUrl("qrc:/share.qml"), {}, false, false});
+        host.router.registerPage(
+            {"plugin-management", "/plugins", QUrl("qrc:/plugins.qml"), {"view"}, true, false});
+        QVERIFY(host.router.navigate("plugin-share-resolve"));
+        ShellSettings settings(host.settings);
+        QStringList warnings;
+        connect(&host.engine, &QQmlEngine::warnings, &host.engine,
+                [&](const QList<QQmlError> &errors) {
+                    for (const auto &error : errors)
+                        warnings.append(error.toString());
+                });
+        QQmlComponent component(&host.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Theme
+import EchoMusic.Plugins
+import EchoMusic.Shell
+ApplicationWindow {
+ id: win
+ required property PluginManager manager
+ required property RouteController router
+ required property ShellSettings settings
+ property real uiScale: settings.uiScale
+ width: 1000; height: 900; visible: true; color: Theme.main
+ Item {
+  width: win.width / win.uiScale; height: win.height / win.uiScale
+  scale: win.uiScale; transformOrigin: Item.TopLeft
+  Loader {
+   anchors.fill: parent
+   active: win.router.current !== null && win.router.current.name === "plugin-share-resolve"
+   sourceComponent: Component {
+    PluginShareResolvePage { manager: win.manager; router: win.router; context: win.router.current; settings: win.settings }
+   }
+  }
+ }
+})",
+                          QUrl("qrc:/plugin-share-page-test.qml"));
+        std::unique_ptr<QObject> root(
+            component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)},
+                                                   {"router", QVariant::fromValue(&host.router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        auto *description = visual(window->contentItem(), "pluginShareDescription");
+        QVERIFY(description);
+        QCOMPARE(description->property("text").toString(), entry.value("description").toString());
+        auto *warning = visual(window->contentItem(), "pluginShareWarningContent");
+        QVERIFY(warning);
+        QCOMPARE(warning->property("text").toString(),
+                 "分享时版本为 v2.0.0，当前插件源提供 v1.0.0。");
+        auto *icon = visual(window->contentItem(), "pluginShareIcon");
+        QVERIFY(icon);
+        QTRY_COMPARE(icon->property("status").toInt(), 1); // Image.Ready
+        const auto output = qEnvironmentVariable("ECHO_PLUGIN_SHARE_OUTPUT");
+        if (!output.isEmpty())
+            QDir().mkpath(output);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const auto scale : {1.0, 1.25})
+                for (const int width : {1000, 480}) {
+                    host.theme.setMode(mode);
+                    settings.resetZoom();
+                    if (scale > 1)
+                        for (int step = 0; step < 5; ++step)
+                            settings.zoomIn();
+                    QCOMPARE(settings.uiScale(), scale);
+                    window->setWidth(width);
+                    QTest::qWait(100);
+                    const auto image = window->grabWindow();
+                    QVERIFY(!image.isNull());
+                    // Prove the real masked media rendered, not just Image.Ready.
+                    const auto point = icon->mapToScene({28, 28}) * image.devicePixelRatio();
+                    // The offscreen software backend omits MultiEffect media;
+                    // native runs must verify these real pixels for acceptance.
+                    if (QGuiApplication::platformName() != "offscreen")
+                        QCOMPARE(image.pixelColor(qRound(point.x()), qRound(point.y())),
+                                 QColor("#cf4084"));
+                    auto *panel = visual(window->contentItem(), "pluginSharePanel");
+                    QVERIFY(panel && panel->width() > 0);
+                    QVERIFY(panel->mapToScene({0, 0}).x() >= 0);
+                    if (!output.isEmpty())
+                        QVERIFY(image.save(
+                            output +
+                            QString("/share-%1-%2-%3.png").arg(int(mode)).arg(scale).arg(width)));
+                    if (width == 480) {
+                        auto *viewport = visual(window->contentItem(), "pluginShareViewport");
+                        QVERIFY(viewport);
+                        viewport->setProperty("contentY",
+                                              viewport->property("contentHeight").toReal() -
+                                                  viewport->height());
+                        QTest::qWait(50);
+                        auto *action = visual(window->contentItem(), "pluginShareInstall");
+                        QVERIFY(action);
+                        const auto bottom = action->mapToScene({0, action->height()});
+                        QVERIFY(bottom.y() <= window->height());
+                        if (!output.isEmpty())
+                            QVERIFY(window->grabWindow().save(
+                                output +
+                                QString("/share-bottom-%1-%2.png").arg(int(mode)).arg(scale)));
+                        viewport->setProperty("contentY", 0);
+                    }
+                }
+        entry["iconUrl"] = "";
+        entry["description"] = "";
+        entry["name"] = " alpha";
+        manager.m_entries = {entry};
+        manager.resolveShared();
+        QCOMPARE(description->property("text").toString(), "暂无描述");
+        auto *fallback = visual(window->contentItem(), "pluginShareIconFallback");
+        QVERIFY(fallback && fallback->isVisible());
+        QCOMPARE(fallback->property("text").toString(), "A");
+        entry["name"] = "";
+        entry["compatible"] = false;
+        entry["error"] = "缺少所需能力";
+        manager.m_shareTarget["version"] = "1.0.0";
+        manager.m_entries = {entry};
+        manager.resolveShared();
+        QCOMPARE(fallback->property("text").toString(), "E");
+        auto *install = visual(window->contentItem(), "pluginShareInstall");
+        QVERIFY(install && !install->isEnabled());
+        QCOMPARE(warning->property("text").toString(), "缺少所需能力");
+        // A real installed fixture determines the installed branch, including
+        // its source-owned version/update decision.
+        const auto packagePath =
+            pluginPackage(host.temporary.path(), "test.share", "export function activate() {} ");
+        QVERIFY(host.runtime.installDirectory(
+            packagePath, {{"kind", "marketplace"}, {"id", source.value("id")}}));
+        QTRY_VERIFY(!host.runtime.installationForId("test.share").isEmpty());
+        entry["compatible"] = true;
+        entry["error"] = "";
+        manager.m_entries = {entry};
+        manager.resolveShared();
+        QCOMPARE(manager.shareState(), "installed");
+        auto *timer = window->findChild<QObject *>("pluginShareInstalledRedirect");
+        QVERIFY(timer);
+        QTRY_VERIFY(timer->property("running").toBool());
+        window->hide();
+        QTRY_VERIFY(!timer->property("running").toBool());
+        QTest::qWait(750);
+        QCOMPARE(host.router.current()->name(), "plugin-share-resolve");
+        window->show();
+        QTRY_VERIFY(timer->property("running").toBool());
+        // A new share cancels an installed redirect even if the old wait is
+        // nearly complete. Catalog resolution restarts only for its new result.
+        QTest::qWait(400);
+        emit manager.shareOpened();
+        manager.m_shareTarget["version"] = "9.0.0";
+        manager.m_shareTarget["id"] = "test.missing";
+        manager.resolveShared();
+        QTest::qWait(400);
+        QCOMPARE(host.router.current()->name(), "plugin-share-resolve");
+        manager.m_shareTarget["id"] = "test.share";
+        manager.resolveShared();
+        QTRY_VERIFY(timer->property("running").toBool());
+        QPointer<QObject> oldPage = visual(window->contentItem(), "pluginShareResolvePage");
+        QVERIFY(host.router.navigate("search"));
+        QTRY_VERIFY(!oldPage);
+        QTest::qWait(750);
+        QCOMPARE(host.router.current()->name(), "search");
+        QVERIFY(host.router.navigate("plugin-share-resolve"));
+        QTest::qWait(300);
+        QCOMPARE(host.router.current()->name(), "plugin-share-resolve");
+        QTRY_COMPARE(host.router.current()->name(), "plugin-management");
+        QCOMPARE(host.router.current()->query().value("view").toString(), "marketplace");
+        QCOMPARE(manager.search(), "test.share");
+        QCOMPARE(manager.sourceFilter(), source.value("id").toString());
+        host.router.back();
+        QCOMPARE(host.router.current()->name(), "search"); // replace removes intermediate page
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+    void catalogInstallationSourceIsNotCompatibility_data()
+    {
+        QTest::addColumn<QString>("originKind");
+        QTest::addColumn<bool>("matchingSource");
+        QTest::newRow("local") << QString("local") << false;
+        QTest::newRow("other-marketplace") << QString("marketplace") << false;
+        QTest::newRow("same-marketplace") << QString("marketplace") << true;
+    }
+    void catalogInstallationSourceIsNotCompatibility()
+    {
+        QFETCH(QString, originKind);
+        QFETCH(bool, matchingSource);
+        Host host;
+        host.theme.setMotionEnabled(false);
+        PluginManager manager(host.runtime, host.settings);
+        const auto officialSource =
+            manager.sources()->data(manager.sources()->index(0), Qt::UserRole + 1).toMap();
+        const auto sourceId = officialSource.value("id").toString();
+        const QVariantMap origin{{"kind", originKind},
+                                 {"id", matchingSource ? sourceId : "other-source"},
+                                 {"name", "Installed source"}};
+        const auto source = pluginPackage(
+            host.temporary.path(), "test.catalog-origin",
+            "import {awaitOperation} from 'echo:plugin-sdk'; export function activate(c) { "
+            "return awaitOperation(c.io.writeValue('kept',41)); }");
+        QVERIFY(host.runtime.installDirectory(source, origin));
+        QTRY_VERIFY(!host.runtime.installationForId("test.catalog-origin").isEmpty());
+        const auto installation = host.runtime.installationForId("test.catalog-origin");
+        QTRY_COMPARE(host.runtime.state(installation), PluginRuntime::Active);
+        const auto generation = host.runtime.context(installation)->activationGeneration();
+        QVariantMap entry{{"key", "catalog-origin"},
+                          {"id", "test.catalog-origin"},
+                          {"name", "频谱可视化"},
+                          {"version", "2.0.0"},
+                          {"compatible", true},
+                          {"sourceId", sourceId},
+                          {"sourceUrl", officialSource.value("url")},
+                          {"sourceName", officialSource.value("name")},
+                          {"path", "plugins/catalog-origin"}};
+        manager.m_entries = {entry};
+        manager.m_loaded = true;
+        manager.rebuild();
+        auto record =
+            manager.catalog()->data(manager.catalog()->index(0), Qt::UserRole + 1).toMap();
+        QVERIFY(record.value("compatible").toBool());
+        QVERIFY(record.value("installed").toBool());
+        QVERIFY(record.value("error").toString().isEmpty());
+        QCOMPARE(record.value("updateAvailable").toBool(), matchingSource);
+        QCOMPARE(record.value("installLabel").toString(),
+                 matchingSource ? QString("更新") : QString("已安装"));
+        QCOMPARE(manager.updateCount(), matchingSource ? 1 : 0);
+        manager.m_shareTarget = {{"sourceId", sourceId},
+                                 {"id", entry.value("id")},
+                                 {"path", entry.value("path")},
+                                 {"version", "2.0.0"}};
+        manager.resolveShared();
+        QCOMPARE(manager.shareState(), matchingSource ? QString("ready") : QString("installed"));
+        QCOMPARE(manager.shareRecord().value("updateAvailable").toBool(), matchingSource);
+        if (!matchingSource) {
+            QSignalSpy notices(&manager, &PluginManager::notice);
+            QVERIFY(!manager.install("catalog-origin"));
+            QVERIFY(!notices.isEmpty());
+            QVERIFY(!notices.last()[1].toBool());
+            QVERIFY(notices.last()[2].toBool());
+            manager.updateAll();
+            QVERIFY(!manager.busy());
+            QVERIFY(manager.m_updateQueue.isEmpty());
+            QCOMPARE(host.runtime.context(installation)->activationGeneration(), generation);
+            QCOMPARE(host.runtime.record(installation).value("origin").toMap(), origin);
+            auto *kept = host.runtime.context(installation)->io()->readValue("kept");
+            const auto guard = host.engine.newQObject(kept);
+            QTRY_VERIFY(kept->finished());
+            QCOMPARE(kept->result().toInt(), 41);
+        }
+        if (originKind != "local")
+            return;
+        host.router.registerPage({"plugin-management",
+                                  "/main/settings/plugins",
+                                  QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginManagementPage.qml"),
+                                  {"view"},
+                                  true,
+                                  false,
+                                  false,
+                                  {}});
+        QVERIFY(host.router.navigate("plugin-management", {{"view", "marketplace"}}));
+        ShellSettings settings(host.settings);
+        QStringList warnings;
+        connect(&host.engine, &QQmlEngine::warnings, &host.engine,
+                [&](const QList<QQmlError> &errors) {
+                    for (const auto &error : errors)
+                        warnings.append(error.toString());
+                });
+        QQmlComponent component(&host.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Theme
+import EchoMusic.Plugins
+import EchoMusic.Shell
+ApplicationWindow {
+ id: win
+ required property PluginManager manager
+ required property RouteController router
+ required property ShellSettings settings
+ property real uiScale: 1
+ width: 500; height: 900; visible: true; color: Theme.main
+ Item {
+  width: win.width / win.uiScale; height: win.height / win.uiScale
+  scale: win.uiScale; transformOrigin: Item.TopLeft
+  PluginManagementPage { anchors.fill: parent; manager: win.manager; router: win.router; context: win.router.current; settings: win.settings }
+ }
+})",
+                          QUrl("qrc:/plugin-origin-test.qml"));
+        std::unique_ptr<QObject> root(
+            component.createWithInitialProperties({{"manager", QVariant::fromValue(&manager)},
+                                                   {"router", QVariant::fromValue(&host.router)},
+                                                   {"settings", QVariant::fromValue(&settings)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && Test::prepareNativeInput(window));
+        const auto output = qEnvironmentVariable("ECHO_PLUGIN_ORIGIN_OUTPUT");
+        if (!output.isEmpty())
+            QDir().mkpath(output);
+        const QStringList messages{
+            "", "缺少 audio.spectrum 能力",
+            "缺少所需的 audio.spectrum "
+            "能力，请使用提供该能力的主程序版本后再启用插件。当前界面设置与插件私有数据仍保留。"};
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const auto scale : {1.0, 1.25})
+                for (int scenario = 0; scenario < messages.size(); ++scenario) {
+                    host.theme.setMode(mode);
+                    window->setProperty("uiScale", scale);
+                    entry["compatible"] = scenario == 0;
+                    entry["error"] = messages[scenario];
+                    manager.m_entries = {entry};
+                    manager.rebuild();
+                    QTRY_VERIFY(visual(window->contentItem(), "pluginCard-test.catalog-origin"));
+                    auto *card = visual(window->contentItem(), "pluginCard-test.catalog-origin");
+                    auto *button = visual(card, "pluginMarketplaceInstall");
+                    QVERIFY(button);
+                    QCOMPARE(button->property("text").toString(),
+                             scenario == 0 ? QString("已安装") : QString("不兼容"));
+                    auto *buttonLabel = visual(button, "buttonLabel");
+                    QVERIFY(buttonLabel);
+                    QTRY_VERIFY(!buttonLabel->property("truncated").toBool());
+                    auto *warning = visual(card, "pluginCardWarning");
+                    QVERIFY(warning);
+                    QCOMPARE(warning->isVisible(), scenario != 0);
+                    QTest::qWait(100);
+                    if (scenario != 0) {
+                        auto *content = visual(warning, "pluginCardWarningContent");
+                        auto *icon = visual(content, "buttonGlyph");
+                        auto *label = visual(content, "buttonLabel");
+                        QVERIFY(icon && label);
+                        QTRY_COMPARE(icon->property("status").toInt(), 1);
+                        auto *text = qobject_cast<QQuickItem *>(
+                            label->property("textItem").value<QObject *>());
+                        QVERIFY(text);
+                        QCOMPARE(text->property("text").toString(), messages[scenario]);
+                        if (scenario == 2)
+                            QVERIFY(text->property("lineCount").toInt() > 1);
+                        const auto image = window->grabWindow();
+                        const qreal dpr = qreal(image.width()) / window->width();
+                        const auto pixel =
+                            warning->mapToScene({warning->width() - 4, warning->height() / 2}) *
+                            dpr;
+                        const auto background =
+                            image.pixelColor(qRound(pixel.x()), qRound(pixel.y()));
+                        const auto foreground = content->property("color").value<QColor>();
+                        const qreal opacity = card->opacity();
+                        const auto paint = QColor::fromRgbF(
+                            foreground.redF() * opacity + background.redF() * (1 - opacity),
+                            foreground.greenF() * opacity + background.greenF() * (1 - opacity),
+                            foreground.blueF() * opacity + background.blueF() * (1 - opacity));
+                        const auto iconArea = icon->mapRectToScene(icon->boundingRect());
+                        const auto lineArea = text->mapRectToScene(
+                            {0, 0, text->width(), label->property("lineHeight").toReal()});
+                        // Measure coverage relative to this translucent card's background.
+                        // A thin software-rasterized SVG can have no nearly opaque pixels
+                        // along its bottom stroke, unlike a native 2x capture. Include
+                        // antialiasing at >=20% coverage for both the icon and text.
+                        const auto inkBounds = [&](const QRectF &area) -> std::optional<QRect> {
+                            const QPointF origin = area.topLeft() * dpr;
+                            const auto pixels = QRectF(origin, area.size() * dpr)
+                                                    .toAlignedRect()
+                                                    .intersected(image.rect());
+                            const double red = paint.red() - background.red();
+                            const double green = paint.green() - background.green();
+                            const double blue = paint.blue() - background.blue();
+                            const double norm = red * red + green * green + blue * blue;
+                            QRect bounds;
+                            for (int y = pixels.top(); y <= pixels.bottom(); ++y)
+                                for (int x = pixels.left(); x <= pixels.right(); ++x) {
+                                    const auto color = image.pixelColor(x, y);
+                                    const double coverage =
+                                        ((color.red() - background.red()) * red +
+                                         (color.green() - background.green()) * green +
+                                         (color.blue() - background.blue()) * blue) /
+                                        norm;
+                                    if (coverage >= .2)
+                                        bounds = bounds.united(QRect(x, y, 1, 1));
+                                }
+                            return bounds.isEmpty() ? std::nullopt : std::optional<QRect>(bounds);
+                        };
+                        const auto iconInk = inkBounds(iconArea);
+                        const auto textInk = inkBounds(lineArea);
+                        QVERIFY(iconInk && textInk);
+                        const qreal delta = qAbs((iconInk->top() + iconInk->bottom()) / 2.0 -
+                                                 (textInk->top() + textInk->bottom()) / 2.0);
+                        qInfo() << "Warning ink" << int(mode) << scale << scenario << *iconInk
+                                << *textInk << "icon box center"
+                                << icon->mapToScene({0, icon->height() / 2}).y() * dpr
+                                << "text metric center"
+                                << label->mapToScene(
+                                            {0, label->property("firstLineInkCenter").toReal()})
+                                           .y() *
+                                       dpr;
+                        if (!output.isEmpty())
+                            image.save(output + QString("/warning-probe-%1-%2-%3.png")
+                                                    .arg(int(mode))
+                                                    .arg(scale)
+                                                    .arg(scenario));
+                        QVERIFY2(
+                            delta <= 1,
+                            qPrintable(QString("first-line rendered ink differs %1 physical px")
+                                           .arg(delta)));
+                    }
+                    if (!output.isEmpty())
+                        QVERIFY(window->grabWindow().save(output + QString("/catalog-%1-%2-%3.png")
+                                                                       .arg(int(mode))
+                                                                       .arg(scale)
+                                                                       .arg(scenario)));
+                }
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
     void initTestCase()
     {
         configureUiTypography();
@@ -1497,10 +1974,14 @@ ApplicationWindow {
             "https://hoowhoami.github.io/EchoMusicNext/share/"));
         QVERIFY(manager.patchSource("github:hoowhoami/echomusicnextplugins", "Private local label",
                                     false));
-        QVERIFY(manager.openShare(*sharedTarget));
+        auto versionDriftShare = *sharedTarget;
+        versionDriftShare.query["version"] = "2.0.0";
+        QVERIFY(manager.openShare(versionDriftShare));
         QCOMPARE(manager.shareState(), "need-source");
         QVERIFY(manager.acceptShareSource());
         QTRY_COMPARE(manager.shareState(), "ready");
+        QCOMPARE(manager.shareRecord().value("shareWarning").toString(),
+                 "分享时版本为 v2.0.0，当前插件源提供 v1.0.0。");
         ShellSettings shellSettings(host.settings);
         QQmlComponent sharePage(&host.engine,
                                 QUrl("qrc:/qt/qml/EchoMusic/Plugins/PluginShareResolvePage.qml"));

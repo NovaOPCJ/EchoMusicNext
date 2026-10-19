@@ -187,7 +187,7 @@ Rectangle {
                     }
                     EchoTag {
                         objectName: "pluginCardStatus"
-                        visible: !!card.record.status && (!card.marketplace || card.warning || card.record.updateAvailable)
+                        visible: !!card.record.status && (!card.marketplace || card.warning || card.record.installed || card.record.updateAvailable)
                         text: card.record.status || ""
                         size: EchoTag.Small
                         tone: card.warning || card.record.status === qsTr("安全模式") || card.record.updateAvailable ? EchoTag.Custom : card.currentFailure ? EchoTag.Custom : card.record.status === qsTr("运行中") ? EchoTag.Accent : EchoTag.Neutral
@@ -242,29 +242,26 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: warningRow.implicitHeight + 16
             visible: card.warning && !!card.record.error
+            objectName: "pluginCardWarning"
             radius: Theme.cardRadius
             color: Theme.withAlpha("#f59e0b", 0.08)
             border.color: Theme.withAlpha("#f59e0b", 0.18)
-            RowLayout {
+            EchoButtonContent {
                 id: warningRow
+                objectName: "pluginCardWarningContent"
                 x: 8
                 y: 8
                 width: parent.width - 16
+                height: implicitHeight
                 spacing: 8
-                EchoIcon {
-                    name: "alert-triangle"
-                    Layout.preferredWidth: 14
-                    Layout.preferredHeight: 14
-                    Layout.alignment: Qt.AlignTop
-                    color: Theme.dark ? "#fbbf24" : "#b45309"
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: card.record.error || ""
-                    font: Theme.font(12, Theme.regularWeight)
-                    color: Theme.dark ? "#fbbf24" : "#b45309"
-                    wrapMode: Text.WrapAnywhere
-                }
+                horizontalAlignment: Qt.AlignLeft
+                glyph: "alert-triangle"
+                glyphSize: 14
+                wrap: true
+                glyphAtFirstLine: true
+                text: card.record.error || ""
+                font: Theme.font(12, Theme.regularWeight)
+                color: Theme.dark ? "#fbbf24" : "#b45309"
             }
         }
         Flow {
@@ -442,8 +439,10 @@ Rectangle {
                     Layout.fillWidth: true
                 }
                 PluginActionButton {
+                    objectName: "pluginMarketplaceInstall"
                     visible: card.marketplace
-                    implicitWidth: Math.max(64, contentItem.implicitWidth + 20)
+                    implicitWidth: Math.max(64, Math.ceil(contentItem.implicitWidth + leftPadding + rightPadding))
+                    Layout.minimumWidth: implicitWidth
                     accent: true
                     glyph: card.record.installed && !card.record.updateAvailable ? "circle-check" : "arrow-bar-to-down"
                     loading: !!card.record.busy

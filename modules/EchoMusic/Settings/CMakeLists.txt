@@ -9,6 +9,9 @@ qt_add_qml_module(
     SettingsServiceTypes.h
     AboutService.h
     AboutService.cpp
+    AboutServiceDownload.cpp
+    ReleaseManifest.h
+    ReleaseManifest.cpp
     SettingsMarkdownRenderer.h
     SettingsMarkdownRenderer.cpp
     SettingsBackupArchive.h
@@ -53,7 +56,10 @@ qt_add_qml_module(
     SettingsDisclaimerDialog.qml
     SettingsUpdateDialog.qml
 )
-target_compile_definitions(echo_settings PRIVATE ECHO_APP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(
+    echo_settings PRIVATE ECHO_APP_VERSION="${ECHO_RELEASE_VERSION}"
+                          ECHO_DISTRIBUTION_BUILD=$<BOOL:${ECHO_DISTRIBUTION_BUILD}>
+)
 set_source_files_properties(
     "${PROJECT_SOURCE_DIR}/CHANGELOG.md" PROPERTIES QT_RESOURCE_ALIAS "CHANGELOG.md"
 )

@@ -37,8 +37,9 @@ SettingsSection {
     SettingsDivider {}
     SettingsRow {
         heading: qsTr("静默安装")
-        description: qsTr("更新安装时不弹出安装向导，后台自动完成")
+        description: section.about.canInstall ? qsTr("Windows 更新安装时不弹出安装向导；Linux 仍需系统授权") : section.about.updateMessage
         EchoSwitch {
+            enabled: section.about.canInstall
             checked: section.about.silentUpdate
             colors: Theme.floating
             Accessible.name: qsTr("静默安装")

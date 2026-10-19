@@ -87,6 +87,15 @@ QList<QQuickItem *> visuals(QQuickItem *root, const QString &name)
         result.append(visuals(child, name));
     return result;
 }
+bool loadingItems(QQuickItem *root)
+{
+    if (root->inherits("QQuickLoader") && root->property("status").toInt() == 2)
+        return true;
+    for (auto *child : root->childItems())
+        if (loadingItems(child))
+            return true;
+    return false;
+}
 QList<QObject *> popups(QObject *root)
 {
     QList<QObject *> result;
@@ -394,6 +403,9 @@ private slots:
         ListenTogetherControllerTestAccess::rooms(*player.listenTogether());
         QTRY_VERIFY_WITH_TIMEOUT(visual(window->contentItem(), "listenTogetherPage"), 10000);
         QTRY_VERIFY(visual(window->contentItem(), "listenCreateAction"));
+        QTRY_VERIFY(!loadingItems(window->contentItem()));
+        QTRY_VERIFY(
+            visual(window->contentItem(), "listenRoomGrid")->property("atYBeginning").toBool());
         QCOMPARE(popups(root.data()).size(), 0);
         const auto capture = qEnvironmentVariable("ECHO_TOGETHER_ARTIFACTS");
         if (!capture.isEmpty())

@@ -144,7 +144,7 @@ cmake --build --preset release --target echomusicnext
 
 ## 🏗️ 编译发布
 
-项目使用 [GitHub Actions](.github/workflows/build.yml) 配置 Windows、macOS、Linux 的 x64 / ARM64 构建、格式检查和测试任务。
+项目使用 [GitHub Actions](.github/workflows/build.yml) 构建 Windows、macOS、Linux 的 x64 / ARM64 安装包。普通代码推送不触发桌面构建；可手动构建并下载保留 7 天的产物，推送 `v*` 版本标签则在六个平台全部通过后发布 GitHub Release。分享页面仍独立手动发布。
 
 **手动构建：**
 
@@ -160,17 +160,19 @@ ctest --preset release
 python3.12 scripts/build.py --preset release --distribution
 ```
 
-分发模式启用应用打包态的生命周期行为。制作可分发安装包还需完成依赖部署、文件关联、签名、公证及平台安装验证；当前工作流未配置自动发布 Release。
+分发模式启用安装更新与重启等生命周期行为。安装包制作、版本标签规则和平台依赖见[构建指南](docs/build.md)。版本标签须与 CMake 和 Cargo 中声明的版本一致，可附预发布后缀。
 
 ## 📦 构建产物
 
-| 平台 | 默认 Release 产物 |
+| 平台 | 安装包 |
 | --- | --- |
-| macOS | `build/release/app/echomusicnext.app` |
-| Windows | `build/release/app/echomusicnext.exe` |
-| Linux | `build/release/app/echomusicnext` |
+| macOS | DMG、ZIP |
+| Windows | NSIS 安装程序 |
+| Linux | AppImage、DEB、RPM、Arch 包、tar.gz |
 
-这些路径是本地编译输出，正式安装包格式与发布方式将在部署流程完成后提供。
+本地打包输出位于 `build/packages/`，CI 产物可从工作流页面下载。macOS 安装包采用临时签名，未公证。
+
+在「设置 → 关于」可检查更新、选择预发布版本。适用的 Windows / Linux 安装方式支持下载进度、取消、文件校验及安装后重启；关闭更新窗口不影响后台下载，可从任务中心再次打开。macOS 下载 DMG 后退出应用并手动替换，tar.gz 安装同样手动更新。开发构建不自动安装更新。
 
 ## 问题反馈
 

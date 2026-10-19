@@ -181,6 +181,59 @@ int EchoMusic::Application::run()
     if (network.transportAvailable())
         network.installApplicationTransport();
     EchoMusic::AboutService about(settings, network);
+    QObject::connect(
+        &about, &EchoMusic::AboutService::changed, &shellController,
+        [&, handle = EchoMusic::TaskCenterModel::Handle{},
+         previous = EchoMusic::AboutService::Idle]() mutable {
+            using Tasks = EchoMusic::TaskCenterModel;
+            const auto state = about.downloadState();
+            if (state == previous && state == EchoMusic::AboutService::Downloading) {
+                shellController.tasks()->updateProgress(handle, about.downloadPercent());
+                return;
+            }
+            if (state == previous)
+                return;
+            previous = state;
+            if (state == EchoMusic::AboutService::Idle) {
+                shellController.tasks()->remove(handle);
+                handle = {};
+                return;
+            }
+            Tasks::Content content;
+            content.name = QObject::tr("更新 EchoMusicNext v%1").arg(about.releaseVersion());
+            content.error = about.downloadError();
+            content.percent = about.downloadPercent();
+            content.actions = {{"view", QObject::tr("查看"), EchoMusic::TaskAction::Ghost, true,
+                                true, [&] { about.check(); }}};
+            if (state == EchoMusic::AboutService::Downloading)
+                content.actions.append({"cancel", QObject::tr("取消下载"),
+                                        EchoMusic::TaskAction::Ghost, true, false,
+                                        [&] { about.cancelDownload(); }});
+            if (state == EchoMusic::AboutService::Downloaded)
+                content.actions.append({"install", QObject::tr("安装并重启"),
+                                        EchoMusic::TaskAction::Primary, true, true,
+                                        [&] { about.install(); }});
+            if (state == EchoMusic::AboutService::DownloadFailed)
+                content.actions.append({"retry", QObject::tr("重试"),
+                                        EchoMusic::TaskAction::Primary, true, false,
+                                        [&] { about.download(); }});
+            const auto status = state == EchoMusic::AboutService::DownloadFailed ? Tasks::Error
+                                : state == EchoMusic::AboutService::Downloaded   ? Tasks::Completed
+                                                                                 : Tasks::Running;
+            if (state == EchoMusic::AboutService::Downloading || !handle.generation)
+                handle =
+                    shellController.tasks()->registerTask(about, {"application-update",
+                                                                  content,
+                                                                  status,
+                                                                  10,
+                                                                  Tasks::Policy::actionRequired(),
+                                                                  {}});
+            else if (status == Tasks::Running) {
+                shellController.tasks()->start(handle);
+                shellController.tasks()->update(handle, content);
+            } else
+                shellController.tasks()->finish(handle, status, content);
+        });
     QObject::connect(&about, &EchoMusic::AboutService::notice, &shellController,
                      [&](const QString &message, bool failure) {
                          shellController.toasts()->show(message,
@@ -458,7 +511,8 @@ int EchoMusic::Application::run()
     QObject::connect(&pluginManager, &PluginManager::sharedInstalled, &router, [&] {
         if (router.current() && router.current()->name() == "plugin-share-resolve") {
             pluginManager.setSearch(pluginManager.shareRecord().value("id").toString());
-            router.navigate("plugin-management", {{"view", "marketplace"}});
+            pluginManager.setSourceFilter(pluginManager.shareRecord().value("sourceId").toString());
+            router.replace("plugin-management", {{"view", "marketplace"}});
         }
     });
     bool urlDeliveryReady = false;
@@ -528,6 +582,7 @@ int EchoMusic::Application::run()
     };
     QObject::connect(&startup, &EchoMusic::StartupController::quitRequested, &app, beginShutdown);
     QObject::connect(&relaunch, &EchoMusic::RelaunchService::readyToQuit, &app, beginShutdown);
+    QObject::connect(&about, &EchoMusic::AboutService::readyToQuit, &app, beginShutdown);
     QObject::connect(&playback, &EchoMusic::PlaybackService::listeningReportsDrained, &api,
                      &EchoMusic::ApiClient::shutdown);
     QObject::connect(&plugins, &PluginRuntime::closed, &app, [&] {

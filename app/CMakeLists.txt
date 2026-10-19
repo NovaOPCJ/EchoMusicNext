@@ -26,6 +26,7 @@ elseif(UNIX)
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${ECHO_APPLICATION_ID}.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     )
+    install(FILES echomusicnext-mime.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
     install(
         FILES assets/linux-icon.png
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
@@ -38,8 +39,9 @@ elseif(UNIX)
     )
 endif()
 target_compile_definitions(
-    echomusicnext PRIVATE ECHO_DISTRIBUTION_BUILD=$<BOOL:${ECHO_DISTRIBUTION_BUILD}>
-                          ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}"
+    echomusicnext
+    PRIVATE ECHO_DISTRIBUTION_BUILD=$<BOOL:${ECHO_DISTRIBUTION_BUILD}>
+            ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}" ECHO_APP_VERSION="${ECHO_RELEASE_VERSION}"
 )
 target_link_libraries(
     echomusicnext
@@ -105,6 +107,50 @@ set_target_properties(
 echo_copy_rust_runtime(echomusicnext)
 
 add_dependencies(echomusicnext echo-theme-image-worker)
+add_dependencies(echomusicnext echo-update-helper)
+echo_copy_crash_runtime(echomusicnext)
+if(APPLE)
+    install(TARGETS crashpad_handler RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers")
+else()
+    install(TARGETS crashpad_handler RUNTIME DESTINATION bin)
+    if(WIN32)
+        install(TARGETS crashpad_wer RUNTIME DESTINATION bin)
+    endif()
+endif()
+include(GNUInstallDirs)
+install(
+    TARGETS echomusicnext
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+if(APPLE)
+    install(TARGETS echo-theme-image-worker echo-update-helper
+            RUNTIME DESTINATION "echomusicnext.app/Contents/Helpers"
+    )
+    install(FILES "$<TARGET_FILE:echo_ffi>" DESTINATION "echomusicnext.app/Contents/Frameworks")
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/CHANGELOG.md"
+                  "${PROJECT_SOURCE_DIR}/docs/third-party-notices.md"
+            DESTINATION "echomusicnext.app/Contents/Resources/licenses"
+    )
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/licenses/"
+            DESTINATION "echomusicnext.app/Contents/Resources/licenses/third-party"
+    )
+else()
+    install(TARGETS echo-theme-image-worker echo-update-helper
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    install(FILES "$<TARGET_FILE:echo_ffi>"
+            DESTINATION "$<IF:$<BOOL:${WIN32}>,${CMAKE_INSTALL_BINDIR},${CMAKE_INSTALL_LIBDIR}>"
+    )
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/CHANGELOG.md"
+                  "${PROJECT_SOURCE_DIR}/docs/third-party-notices.md"
+            DESTINATION share/echomusicnext/licenses
+    )
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/licenses/"
+            DESTINATION share/echomusicnext/licenses/third-party
+    )
+    set_target_properties(echomusicnext PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
 if(APPLE)
     add_custom_command(
         TARGET echomusicnext
