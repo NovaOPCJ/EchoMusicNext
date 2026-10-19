@@ -1,9 +1,15 @@
 #include "EchoColorValue.h"
 #include "ThemeStore.h"
 #include <QFontDatabase>
+#include <QQmlEngine>
 #include <QRegularExpression>
 namespace EchoMusic
 {
+EchoColorValue *EchoColorValue::create(QQmlEngine *engine, QJSEngine *)
+{
+    // Engine-owned singleton: helpers are stateless and die with their engine.
+    return new EchoColorValue(engine);
+}
 QFont EchoColorValue::fixedFont() const
 {
     return QFontDatabase::systemFont(QFontDatabase::FixedFont);

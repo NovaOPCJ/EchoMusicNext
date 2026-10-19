@@ -1380,7 +1380,7 @@ elif sys.argv[1] == 'dispatch':
         QVERIFY(reopened.dark());
         ThemeStore restored(preferences);
         QCOMPARE(restored.mode(), ThemeStore::System);
-        EchoColorValue value;
+        EchoColorValue value(nullptr);
         QCOMPARE(value.normalize(" #aBc "), QString("#aabbcc"));
         QCOMPARE(value.normalize("not-a-color"), QString("#31cfa1"));
         QCOMPARE(value.normalize("red"), QString("#31cfa1"));

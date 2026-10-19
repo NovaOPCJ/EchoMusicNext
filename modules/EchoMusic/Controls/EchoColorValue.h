@@ -3,6 +3,9 @@
 #include <QColor>
 #include <QFont>
 #include <QtQml/qqmlregistration.h>
+
+class QQmlEngine;
+class QJSEngine;
 namespace EchoMusic
 {
 /// Pure presentation helpers for color dialogs; no writable theme preferences.
@@ -13,7 +16,10 @@ class EchoColorValue final : public QObject
     QML_SINGLETON
     Q_PROPERTY(QFont fixedFont READ fixedFont CONSTANT)
 public:
-    explicit EchoColorValue(QObject *parent = nullptr) : QObject(parent) {}
+    // No default constructor: QML otherwise instantiates through QQmlElement<T>,
+    // which cannot derive from a final class.
+    explicit EchoColorValue(QObject *parent) : QObject(parent) {}
+    static EchoColorValue *create(QQmlEngine *engine, QJSEngine *scriptEngine);
     QFont fixedFont() const;
     Q_INVOKABLE QString normalize(const QString &text) const;
     Q_INVOKABLE qreal contrast(const QColor &a, const QColor &b) const;

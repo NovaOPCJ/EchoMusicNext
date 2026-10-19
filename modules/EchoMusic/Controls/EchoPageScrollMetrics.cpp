@@ -1,9 +1,15 @@
 #include "EchoPageScrollMetrics.h"
 #include <QGuiApplication>
+#include <QQmlEngine>
 #include <QStyleHints>
 
 namespace EchoMusic
 {
+EchoPageScrollMetrics *EchoPageScrollMetrics::create(QQmlEngine *engine, QJSEngine *)
+{
+    // Context ownership disconnects this projection when its QML engine dies.
+    return new EchoPageScrollMetrics(engine);
+}
 EchoPageScrollMetrics::EchoPageScrollMetrics(QObject *parent) : QObject(parent)
 {
     // Context ownership disconnects this projection when its QML engine dies.
