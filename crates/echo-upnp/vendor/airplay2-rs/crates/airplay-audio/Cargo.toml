@@ -1,0 +1,38 @@
+[package]
+name = "airplay-audio"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/lmcgartland/airplay2-rs"
+description = "Audio encoding and RTP streaming for AirPlay 2"
+
+[dependencies]
+airplay-core = { path = "../airplay-core" }
+airplay-crypto = { path = "../airplay-crypto" }
+airplay-timing = { path = "../airplay-timing" }
+airplay-resampler = { path = "../airplay-resampler" }
+tokio = { version = "1.37", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+symphonia = { version = "0.5", features = ["all"] }
+tracing = "0.1"
+socket2 = "0.5"
+rand = "0.8"
+crossbeam-channel = "0.5"
+libc = "0.2"
+spin_sleep = "1.2"
+
+# Audio codecs
+alac-encoder = "0.3"
+fdk-aac = "0.6"
+
+# Audio processing
+biquad = "0.4"
+rustfft = "6"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"
+test-case = "3.3"
+proptest = "1.4"
+hound = "3.5"  # WAV file writing for audio validation tests

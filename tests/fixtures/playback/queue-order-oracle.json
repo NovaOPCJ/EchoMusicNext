@@ -1,0 +1,2021 @@
+{
+  "source": "src/shared/playbackQueueDecision.ts",
+  "sha256": "49ff6123029b202c8501925f38c91aa28d37af80a82642bae6f32217c1f4b8f9",
+  "cases": [
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": null,
+      "remaining": [
+        "a",
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": null,
+      "remaining": [
+        "b"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": null,
+      "remaining": [
+        "a"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "a",
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "a",
+      "remaining": [
+        "b"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": [
+        "a"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": [
+        "a",
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "c",
+      "remaining": [
+        "b"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "c",
+      "remaining": [
+        "a"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "ordinary",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "list",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "single",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": false,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": null,
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "c",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "a",
+      "queued": [
+        "a"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "c"
+      ],
+      "target": null,
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a",
+        "c"
+      ],
+      "target": "a",
+      "remaining": [
+        "c"
+      ]
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "b"
+      ],
+      "target": "b",
+      "remaining": []
+    },
+    {
+      "sourceKind": "discover",
+      "mode": "sequential",
+      "automatic": true,
+      "current": "c",
+      "queued": [
+        "a"
+      ],
+      "target": "a",
+      "remaining": []
+    }
+  ]
+}

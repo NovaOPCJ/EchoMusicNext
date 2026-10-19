@@ -1,0 +1,11 @@
+{
+  "format": {
+    "line_width": 100,
+    "tab_size": 4,
+    "dangle_parens": true,
+    "line_ending": "unix"
+  },
+  "markup": {
+    "enable_markup": false
+  }
+}

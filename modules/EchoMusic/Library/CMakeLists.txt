@@ -1,0 +1,37 @@
+qt_add_qml_module(
+    echo_libraryui
+    STATIC
+    URI
+    EchoMusic.Library
+    SOURCES
+    SidebarPlaylistModel.h
+    SidebarPlaylistModel.cpp
+    LibraryController.h
+    LibraryController.cpp
+    PlaylistOrderModel.h
+    PlaylistOrderModel.cpp
+    PlaylistImportService.h
+    PlaylistImportService.cpp
+    QML_FILES
+    SidebarPlaylistRow.qml
+    PlaylistCreateDialog.qml
+    PlaylistRemoveDialog.qml
+    PlaylistOrderDialog.qml
+    PlaylistImportDialog.qml
+    PlaylistImportDraft.qml
+    PlaylistImportInput.qml
+    PlaylistImportProgress.qml
+)
+target_include_directories(echo_libraryui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_libraryui
+    PUBLIC echo_library Qt6::Qml
+    PRIVATE echo_build_options
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::QuickControls2
+            Qt6::Concurrent
+            Qt6::Gui
+)

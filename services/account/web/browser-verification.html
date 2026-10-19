@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <title>EchoMusic · 安全验证</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --background: #f5f7f6;
+        --surface: #fff;
+        --text: #202b26;
+        --muted: #6d7771;
+        --line: #e7ece9;
+        --accent: #25945c;
+        --tint: #eaf6ee;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        min-width: 360px;
+        min-height: 100vh;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        color: var(--text);
+        background: var(--background);
+        font:
+          14px/1.6 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        width: min(100%, 396px);
+        text-align: center;
+      }
+      .brand {
+        margin: 0 0 22px;
+        font-size: 24px;
+        font-weight: 650;
+        line-height: 1.25;
+        letter-spacing: -0.6px;
+      }
+      .card {
+        padding: 24px 16px 20px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+        box-shadow: 0 8px 28px #183b2809;
+      }
+      .symbol {
+        display: none;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 14px;
+        color: var(--accent);
+        background: var(--tint);
+        border-radius: 14px;
+      }
+      .symbol svg {
+        width: 24px;
+        height: 24px;
+      }
+      body[data-phase='sent'] .symbol {
+        display: grid;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.4px;
+      }
+      .description {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      #stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        min-height: 360px;
+        margin: 22px auto 16px;
+        width: 360px;
+      }
+      #challenge {
+        width: 360px;
+        min-height: 360px;
+      }
+      #loading {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 14px;
+        color: var(--muted);
+        background: var(--surface);
+      }
+      .spinner {
+        width: 24px;
+        height: 24px;
+        border: 2px solid var(--line);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.85s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #status {
+        margin: 18px 0 0;
+        font-size: 12px;
+        line-height: 20px;
+        color: var(--muted);
+      }
+      button {
+        min-height: 32px;
+        margin-top: 14px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 4px;
+        color: var(--muted);
+        background: transparent;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      button:hover {
+        color: var(--text);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      button:active {
+        opacity: 0.75;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--text);
+        outline-offset: 3px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #151b18;
+          --surface: #1d2520;
+          --text: #edf2ef;
+          --muted: #98a79e;
+          --line: #303c34;
+          --accent: #72cf99;
+          --tint: #293f31;
+        }
+        .card {
+          box-shadow: 0 8px 28px #0002;
+        }
+      }
+      @media (max-width: 420px) {
+        body {
+          padding: 12px 0;
+        }
+        main {
+          width: 100%;
+        }
+        .card {
+          padding-inline: 0;
+          border-inline: 0;
+          border-radius: 0;
+          box-shadow: none;
+        }
+        .description {
+          padding-inline: 16px;
+        }
+        #status {
+          margin-inline: 16px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 2s;
+        }
+      }
+    </style>
+  </head>
+  <body data-phase="loading">
+    <main>
+      <header class="brand">EchoMusic</header>
+      <section class="card" aria-labelledby="title">
+        <div class="symbol" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m5 12 4.5 4.5L19 7" />
+          </svg>
+        </div>
+        <h1 id="title" aria-live="polite">安全验证</h1>
+        <p class="description" id="description" hidden></p>
+        <div id="stage">
+          <div id="challenge"></div>
+          <div id="loading">
+            <div class="spinner"></div>
+            <span>正在加载验证码…</span>
+          </div>
+        </div>
+        <p id="status" role="status" aria-live="polite">完成后将自动返回应用</p>
+        <button id="retry" hidden>重新加载</button>
+        <button id="close" hidden>关闭窗口</button>
+      </section>
+    </main>
+    <script>
+      const appId = 'ECHO_CAPTCHA_APP_ID';
+      // Chromium app windows allow resizing their single-page window. The
+      // launch flag alone may be ignored when an existing browser is reused.
+      window.resizeTo(440, 680);
+      const capability = location.hash.slice(1);
+      history.replaceState(null, '', location.pathname);
+      const title = document.querySelector('#title');
+      const description = document.querySelector('#description');
+      const status = document.querySelector('#status');
+      const stage = document.querySelector('#stage');
+      const loading = document.querySelector('#loading');
+      const challenge = document.querySelector('#challenge');
+      const retry = document.querySelector('#retry');
+      const close = document.querySelector('#close');
+      let captcha;
+      let script;
+      let run = 0;
+      let finished = false;
+      let loadDeadline;
+      const expiry = setTimeout(expire, 180000);
+      async function send(result) {
+        const response = await fetch('/result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Echo-Verification': capability },
+          body: JSON.stringify(result),
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) throw new Error('callback');
+        return response.json();
+      }
+      function destroyChallenge() {
+        ++run;
+        clearTimeout(loadDeadline);
+        const previous = captcha;
+        captcha = undefined;
+        previous?.destroy();
+      }
+      function message(phase, heading, detail = '', note = '') {
+        document.body.dataset.phase = phase;
+        title.textContent = heading;
+        description.textContent = detail;
+        description.hidden = !detail;
+        status.textContent = note;
+        status.hidden = !note;
+        stage.hidden = phase !== 'loading' && phase !== 'challenge';
+        loading.hidden = phase !== 'loading';
+        retry.hidden = phase !== 'error';
+        close.hidden = phase !== 'sent' && phase !== 'cancelled' && phase !== 'expired';
+      }
+      function expire() {
+        if (finished) return;
+        finished = true;
+        clearTimeout(expiry);
+        destroyChallenge();
+        message('expired', '验证页面已失效', '请从应用中重新打开验证');
+      }
+      function sdkError(code) {
+        if (finished) return;
+        destroyChallenge();
+        message('error', '验证加载失败', '请检查网络连接');
+        send({ ret: 0, errorCode: code }).catch(expire);
+      }
+      async function complete(result, attempt) {
+        if (finished || attempt !== run) return;
+        if (result.errorCode || result.ticket?.startsWith('trerror_')) {
+          sdkError(result.errorCode || -1);
+          return;
+        }
+        destroyChallenge();
+        message('sending', '正在提交验证');
+        try {
+          const response = await send({
+            ret: result.ret,
+            ticket: result.ticket,
+            randstr: result.randstr,
+            errorCode: result.errorCode,
+          });
+          if (finished) return;
+          if (response.sdkError) {
+            sdkError(result.errorCode || -1);
+            return;
+          }
+          finished = true;
+          clearTimeout(expiry);
+          if (response.cancelled) {
+            message('cancelled', '验证已取消', '可在应用中重新开始验证');
+            return;
+          }
+          message('sent', '验证已提交', '正在返回 EchoMusic');
+          setTimeout(() => window.close(), 700);
+        } catch {
+          expire();
+        }
+      }
+      function showChallenge() {
+        if (finished) return;
+        const attempt = run;
+        try {
+          captcha = new TencentCaptcha(challenge, appId, (result) => complete(result, attempt), {
+            type: 'embed',
+            userLanguage: 'zh-cn',
+            enableDarkMode: true,
+            ready: () => {
+              if (finished || attempt !== run) return;
+              clearTimeout(loadDeadline);
+              message('challenge', '安全验证', '', '完成后将自动返回应用');
+              send({ event: 'ready' }).catch(expire);
+            },
+          });
+          captcha.show();
+        } catch {
+          sdkError(1005);
+        }
+      }
+      function start() {
+        if (finished) return;
+        destroyChallenge();
+        script?.remove();
+        message('loading', '安全验证', '', '完成后将自动返回应用');
+        const attempt = run;
+        loadDeadline = setTimeout(() => {
+          if (attempt === run) sdkError(1002);
+        }, 20000);
+        script = document.createElement('script');
+        script.src = 'https://turing.captcha.qcloud.com/TJCaptcha.js';
+        script.onload = () => {
+          if (finished || attempt !== run) return;
+          if (typeof TencentCaptcha === 'function') showChallenge();
+          else sdkError(1001);
+        };
+        script.onerror = () => {
+          if (attempt === run) sdkError(1001);
+        };
+        document.head.appendChild(script);
+      }
+      retry.onclick = start;
+      close.onclick = () => window.close();
+      if (/^[A-Za-z0-9_-]{43}$/.test(capability)) start();
+      else expire();
+    </script>
+  </body>
+</html>

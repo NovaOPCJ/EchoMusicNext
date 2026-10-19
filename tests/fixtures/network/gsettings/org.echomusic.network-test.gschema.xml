@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Local notification fixture only; not a copied desktop configuration/schema. -->
+<schemalist>
+  <schema id="org.gnome.system.proxy" path="/system/proxy/">
+    <key name="mode" type="s"><default>'none'</default></key>
+    <child name="http" schema="org.gnome.system.proxy.http"/>
+  </schema>
+  <schema id="org.gnome.system.proxy.http" path="/system/proxy/http/">
+    <key name="host" type="s"><default>''</default></key>
+  </schema>
+  <schema id="org.echomusic.network-test" path="/echomusic/network-test/">
+    <key name="appearance" type="s"><default>'light'</default></key>
+  </schema>
+</schemalist>

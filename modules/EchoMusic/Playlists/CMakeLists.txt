@@ -1,0 +1,43 @@
+qt_add_qml_module(
+    echo_playlists
+    STATIC
+    URI
+    EchoMusic.Playlists
+    DEPENDENCIES
+    EchoMusic.Details
+    EchoMusic.Music
+    EchoMusic.Playback
+    EchoMusic.Shell
+    EchoMusic.Library
+    SOURCES
+    PlaylistDetailContext.h
+    PlaylistDetailContext.cpp
+    PlaylistDetailService.h
+    PlaylistDetailService.cpp
+    QML_FILES
+    PlaylistDetailPage.qml
+    PlaylistDetailHeader.qml
+)
+target_link_libraries(
+    echo_playlists
+    PUBLIC echo_details echo_music echo_library echo_libraryui echo_shell echo_playback_service
+    PRIVATE echo_detailsplugin
+            echo_bridge
+            echo_libraryuiplugin
+            echo_library
+            echo_playback_service
+            echo_playback
+            echo_playbackplugin
+            echo_shell
+            echo_shellplugin
+            echo_music
+            echo_musicplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            echo_build_options
+            Qt6::Quick
+            Qt6::QuickControls2
+)
+target_include_directories(echo_playlists PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

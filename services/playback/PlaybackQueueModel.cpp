@@ -1,0 +1,291 @@
+#include "PlaybackQueueModel.h"
+namespace EchoMusic
+{
+void PlaybackQueueModel::restoreNext(const QStringList &keys)
+{
+    m_next.clear();
+    m_nextSet.clear();
+    QSet<QString> valid;
+    for (const auto &t : m_tracks)
+        valid.insert(t.key());
+    for (const auto &key : keys)
+        if (valid.contains(key) && !m_nextSet.contains(key)) {
+            m_next.append(key);
+            m_nextSet.insert(key);
+        }
+    if (rowCount())
+        emit dataChanged(index(0), index(rowCount() - 1), {QueuedNext});
+    emit changed();
+}
+QVariant PlaybackQueueModel::data(const QModelIndex &i, int role) const
+{
+    const auto *t = at(i.row());
+    if (!i.isValid() || !t)
+        return {};
+    switch (role) {
+    case Title:
+        return t->title;
+    case ArtistText:
+        return t->artist;
+    case AlbumText:
+        return t->album;
+    case CoverUrl:
+        return t->cover;
+    case ResourceId:
+        return t->key();
+    case DurationText:
+        return QString("%1:%2")
+            .arg(t->durationMs / 60000)
+            .arg(t->durationMs / 1000 % 60, 2, 10, QChar('0'));
+    case Current:
+        return i.row() == m_current;
+    case QueuedNext:
+        return m_nextSet.contains(t->key());
+    default:
+        return {};
+    }
+}
+QHash<int, QByteArray> PlaybackQueueModel::roleNames() const
+{
+    return {{Title, "title"},       {ArtistText, "artistText"},     {AlbumText, "albumText"},
+            {CoverUrl, "coverUrl"}, {DurationText, "durationText"}, {ResourceId, "resourceId"},
+            {Current, "isCurrent"}, {QueuedNext, "queuedNext"}};
+}
+void PlaybackQueueModel::replace(PlaybackTracks tracks, int current)
+{
+    const QString selected =
+        current >= 0 && current < tracks.size() ? tracks[current].key() : QString();
+    PlaybackTracks clean;
+    QSet<QString> seen, ids;
+    for (auto &t : tracks)
+        if (t.playable() && !seen.contains(t.key()) && (t.id.isEmpty() || !ids.contains(t.id))) {
+            seen.insert(t.key());
+            ids.insert(t.id);
+            clean.append(std::move(t));
+        }
+    bool appendOnly = clean.size() >= m_tracks.size();
+    for (int i = 0; appendOnly && i < m_tracks.size(); ++i)
+        appendOnly = clean[i].id == m_tracks[i].id;
+    QStringList nextIds;
+    if (appendOnly)
+        for (const auto &key : m_next)
+            for (const auto &track : m_tracks)
+                if (track.key() == key)
+                    nextIds.append(track.id);
+    beginResetModel();
+    ++m_revision;
+    m_tracks = std::move(clean);
+    m_next.clear();
+    m_nextSet.clear();
+    for (const auto &id : nextIds)
+        for (const auto &track : m_tracks)
+            if (track.id == id) {
+                m_next.append(track.key());
+                m_nextSet.insert(track.key());
+                break;
+            }
+    m_current = -1;
+    for (int i = 0; i < m_tracks.size(); ++i)
+        if (m_tracks[i].key() == selected)
+            m_current = i;
+    endResetModel();
+    emit changed();
+}
+void PlaybackQueueModel::setCurrent(int row)
+{
+    if (row < -1 || row >= m_tracks.size() || row == m_current)
+        return;
+    int old = m_current;
+    m_current = row;
+    if (old >= 0)
+        emit dataChanged(index(old), index(old), {Current});
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {Current});
+    emit changed();
+}
+void PlaybackQueueModel::append(const PlaybackTracks &tracks, bool next,
+                                const QString &currentTrackId, bool sequential)
+{
+    const auto same = [](const PlaybackTrack &a, const PlaybackTrack &b) {
+        return (!a.id.isEmpty() && a.id == b.id) ||
+               (!a.hash.isEmpty() && a.hash.compare(b.hash, Qt::CaseInsensitive) == 0) ||
+               (!a.localPath.isEmpty() && a.localPath == b.localPath);
+    };
+    if (next) {
+        auto ordered = m_tracks;
+        auto priorities = m_next;
+        const auto selected = at(m_current) ? at(m_current)->key() : QString();
+        const auto current =
+            currentTrackId.isEmpty()
+                ? (at(m_current) && !at(m_current)->id.isEmpty() ? at(m_current)->id : selected)
+                : currentTrackId;
+        for (const auto &incoming : tracks) {
+            if (!incoming.playable() ||
+                (incoming.id.isEmpty() ? incoming.key() : incoming.id) == current)
+                continue;
+            if (std::any_of(ordered.cbegin(), ordered.cend(), [&](const auto &t) {
+                    return (t.id.isEmpty() ? t.key() : t.id) == current && same(t, incoming);
+                }))
+                continue;
+            int currentIndex = -1, existing = -1;
+            for (int i = 0; i < ordered.size(); ++i) {
+                if ((ordered[i].id.isEmpty() ? ordered[i].key() : ordered[i].id) == current)
+                    currentIndex = i;
+                if (same(ordered[i], incoming))
+                    existing = i;
+            }
+            int insert = currentIndex + 1;
+            if (sequential || tracks.size() > 1)
+                while (insert < ordered.size() && priorities.contains(ordered[insert].key()))
+                    ++insert;
+            const auto track = existing >= 0 ? ordered[existing] : incoming;
+            if (existing >= 0) {
+                ordered.removeAt(existing);
+                if (existing < insert)
+                    --insert;
+            }
+            ordered.insert(qBound(0, insert, int(ordered.size())), track);
+            priorities.removeAll(track.key());
+            if (!sequential && tracks.size() == 1)
+                priorities.prepend(track.key());
+            else
+                priorities.append(track.key());
+        }
+        if (ordered == m_tracks && priorities == m_next)
+            return;
+        beginResetModel();
+        ++m_revision;
+        m_tracks = std::move(ordered);
+        m_next = priorities;
+        m_nextSet = QSet<QString>(m_next.cbegin(), m_next.cend());
+        m_current = -1;
+        for (int i = 0; i < m_tracks.size(); ++i)
+            if (m_tracks[i].key() == selected)
+                m_current = i;
+        endResetModel();
+        emit changed();
+        return;
+    }
+    PlaybackTracks added;
+    QSet<QString> ids, hashes, paths;
+    for (const auto &track : m_tracks) {
+        if (!track.id.isEmpty())
+            ids.insert(track.id);
+        if (!track.hash.isEmpty())
+            hashes.insert(track.hash.toLower());
+        if (!track.localPath.isEmpty())
+            paths.insert(track.localPath);
+    }
+    for (const auto &track : tracks)
+        if (track.playable() && !ids.contains(track.id) &&
+            (track.hash.isEmpty() || !hashes.contains(track.hash.toLower())) &&
+            (track.localPath.isEmpty() || !paths.contains(track.localPath))) {
+            added.append(track);
+            if (!track.id.isEmpty())
+                ids.insert(track.id);
+            if (!track.hash.isEmpty())
+                hashes.insert(track.hash.toLower());
+            if (!track.localPath.isEmpty())
+                paths.insert(track.localPath);
+        }
+    if (added.isEmpty())
+        return;
+    const int n = rowCount();
+    beginInsertRows({}, n, n + int(added.size()) - 1);
+    ++m_revision;
+    m_tracks.append(added);
+    endInsertRows();
+    emit changed();
+}
+void PlaybackQueueModel::consumePlayedPriority(const QString &trackId)
+{
+    for (int row = 0; row < m_tracks.size(); ++row)
+        if ((m_tracks[row].id.isEmpty() ? m_tracks[row].key() : m_tracks[row].id) == trackId &&
+            m_nextSet.remove(m_tracks[row].key())) {
+            m_next.removeAll(m_tracks[row].key());
+            emit dataChanged(index(row), index(row), {QueuedNext});
+            emit changed();
+            break;
+        }
+}
+void PlaybackQueueModel::remove(int row)
+{
+    if (!at(row))
+        return;
+    const bool active = row == m_current;
+    m_next.removeAll(m_tracks[row].key());
+    m_nextSet.remove(m_tracks[row].key());
+    beginRemoveRows({}, row, row);
+    ++m_revision;
+    m_tracks.removeAt(row);
+    if (active)
+        m_current = -1;
+    else if (row < m_current)
+        --m_current;
+    endRemoveRows();
+    emit changed();
+    if (active)
+        emit currentRemoved();
+}
+void PlaybackQueueModel::move(int from, int to)
+{
+    if (!at(from) || !at(to) || from == to)
+        return;
+    const auto current = at(m_current) ? at(m_current)->key() : QString();
+    beginMoveRows({}, from, from, {}, to > from ? to + 1 : to);
+    ++m_revision;
+    m_tracks.move(from, to);
+    for (int i = 0; i < m_tracks.size(); ++i)
+        if (m_tracks[i].key() == current)
+            m_current = i;
+    endMoveRows();
+    emit changed();
+}
+void PlaybackQueueModel::clear()
+{
+    replace({});
+    emit currentRemoved();
+}
+int PlaybackQueueModel::takeNextPriority()
+{
+    return takeNextPriority({});
+}
+int PlaybackQueueModel::peekNextPriority() const
+{
+    return peekNextPriority({});
+}
+int PlaybackQueueModel::takeNextPriority(const QString &excludeId)
+{
+    bool consumed = false;
+    while (!m_next.isEmpty()) {
+        const auto key = m_next.takeFirst();
+        m_nextSet.remove(key);
+        consumed = true;
+        for (int row = 0; row < m_tracks.size(); ++row)
+            if (m_tracks[row].key() == key) {
+                emit dataChanged(index(row), index(row), {QueuedNext});
+                if ((m_tracks[row].id.isEmpty() ? m_tracks[row].key() : m_tracks[row].id) !=
+                        excludeId &&
+                    m_tracks[row].playable()) {
+                    emit changed();
+                    return row;
+                }
+                break;
+            }
+    }
+    if (consumed)
+        emit changed();
+    return -1;
+}
+int PlaybackQueueModel::peekNextPriority(const QString &excludeId) const
+{
+    for (const auto &key : m_next)
+        for (int row = 0; row < m_tracks.size(); ++row)
+            if (m_tracks[row].key() == key &&
+                (m_tracks[row].id.isEmpty() ? m_tracks[row].key() : m_tracks[row].id) !=
+                    excludeId &&
+                m_tracks[row].playable())
+                return row;
+    return -1;
+}
+} // namespace EchoMusic

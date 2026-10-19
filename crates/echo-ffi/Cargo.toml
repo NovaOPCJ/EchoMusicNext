@@ -1,0 +1,29 @@
+[package]
+name = "echo-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+echo-upnp = { path = "../echo-upnp" }
+echo-airplay = { path = "../echo-airplay" }
+echo-audio-capture = { path = "../echo-audio-capture" }
+echo-audio = { path = "../echo-audio" }
+echo-media-controls = { path = "../echo-media-controls" }
+echo-opencc = { path = "../echo-opencc" }
+echo-log = { path = "../echo-log" }
+echo-api = { path = "../echo-api" }
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+[lints]
+workspace = true
+

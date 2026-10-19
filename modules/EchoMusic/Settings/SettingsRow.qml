@@ -1,0 +1,59 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import EchoMusic.Theme
+
+RowLayout {
+    id: row
+    Layout.fillHeight: false
+    property string heading: ""
+    property string description: ""
+    property string statusText: ""
+    property color statusColor: Theme.floatingSecondaryText
+    property real controlGap: 12
+    default property alias controls: actions.data
+    Layout.fillWidth: true
+    Layout.minimumWidth: 0
+    spacing: 24
+    ColumnLayout {
+        Layout.fillHeight: false
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.topMargin: 4
+        Layout.bottomMargin: 4
+        spacing: 4
+        Label {
+            Layout.fillWidth: true
+            text: row.heading
+            textFormat: Text.PlainText
+            color: Theme.floatingText
+            font: Theme.font(13, Theme.semiboldWeight)
+            wrapMode: Text.Wrap
+        }
+        Label {
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: row.description
+            textFormat: Text.PlainText
+            color: Theme.floatingSecondaryText
+            font: Theme.font(12, Theme.regularWeight)
+            wrapMode: Text.Wrap
+        }
+        Label {
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: row.statusText
+            textFormat: Text.PlainText
+            color: row.statusColor
+            font: Theme.font(11, Theme.regularWeight)
+            wrapMode: Text.Wrap
+        }
+    }
+    RowLayout {
+        id: actions
+        Layout.fillHeight: false
+        Layout.fillWidth: false
+        spacing: row.controlGap
+    }
+}

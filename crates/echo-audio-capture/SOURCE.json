@@ -1,0 +1,17 @@
+{
+  "source": "EchoMusic/native/echo-audio-capture",
+  "sampled_at": "2026-10-13",
+  "license": "GPL-3.0-only; vendor licenses retained",
+  "removed": [
+    "N-API exports",
+    "Node task and callback wrappers",
+    "napi-build"
+  ],
+  "original_sha256": {
+    "src/backend.rs": "e819c30f73defba632e2925364df8535f8eda122a61a3005cb82e68004081cfb",
+    "src/lib.rs": "5a9bd62bd90eab215bb2b17bf621fe1774a0b013eae0ca0a9f133b3857a28db7",
+    "src/resample.rs": "f357331fbda0b190598c5e5ebd9c01abdaff59d7ea40c489e551c0cfce230fc1",
+    "src/buffer.rs": "14a43dcaf5aa2a8f0d30b7765ea8d5d20a8097b5ce421a2c9def11bb58efa35d",
+    "src/backend/macos_sck.rs": "7a68f33a9301b4f3df86bed64ff8001e50e6248e6c4187920cd80f68bcaa5db9"
+  }
+}

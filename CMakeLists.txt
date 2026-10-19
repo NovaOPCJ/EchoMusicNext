@@ -1,0 +1,59 @@
+cmake_minimum_required(VERSION 3.28)
+if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET
+        "14.4"
+        CACHE STRING "Minimum macOS version" FORCE
+    )
+endif()
+project(
+    EchoMusicNext
+    VERSION 0.1.0
+    LANGUAGES CXX
+)
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(
+    Qt6 6.12.0 EXACT REQUIRED
+    COMPONENTS Core
+               Gui
+               Widgets
+               Qml
+               Quick
+               QuickShapes
+               Multimedia
+               QuickEffects
+               QuickControls2
+               QuickDialogs2
+               ShaderTools
+               Svg
+               Sql
+               Network
+               Concurrent
+               Test
+)
+if(UNIX AND NOT APPLE)
+    # Requiring this SDK module prevents an X11-only SDK silently satisfying the
+    # declared Linux baseline. Actual X11/Wayland sessions still need acceptance.
+    find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS WaylandClient DBus)
+endif()
+qt_standard_project_setup(REQUIRES 6.12)
+set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")
+include(CTest)
+include(cmake/Rust.cmake)
+
+include(cmake/ProjectOptions.cmake)
+option(ECHO_DISTRIBUTION_BUILD "Enable packaged application lifecycle actions" OFF)
+include(cmake/Curl.cmake)
+add_subdirectory(services)
+add_subdirectory(modules)
+add_subdirectory(app)
+if(BUILD_TESTING)
+    add_subdirectory(tests/qt)
+endif()

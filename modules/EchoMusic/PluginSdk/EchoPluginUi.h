@@ -1,0 +1,58 @@
+#pragma once
+#include "EchoPluginOperation.h"
+#include "EchoPluginRegistration.h"
+#include "EchoPluginTask.h"
+#include <QJSValue>
+#include <QUrl>
+namespace EchoMusic
+{
+class EchoPluginContext;
+class EchoPluginTask;
+/// Final host registries, not a parallel plugin UI. Definitions are staged
+/// during activation and removed before a context is destroyed.
+class EchoPluginUi final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged)
+    Q_PROPERTY(QUrl settingsComponent READ settingsComponent NOTIFY settingsChanged)
+    QML_ELEMENT
+    QML_UNCREATABLE("Owned by EchoPluginContext")
+public:
+    explicit EchoPluginUi(EchoPluginContext &scope);
+    QUrl settingsComponent() const
+    {
+        return m_settingsComponent;
+    }
+    QVariantMap state() const
+    {
+        return m_state;
+    }
+    Q_INVOKABLE bool setState(const QVariantMap &values);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *
+    registerSurface(const QString &id, const QString &target, const QString &component);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerSettings(const QString &component);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerPage(const QString &id,
+                                                                const QString &component);
+    Q_INVOKABLE EchoMusic::EchoPluginOperation *navigate(const QString &id,
+                                                         const QVariantMap &query = {});
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *registerTitlebarAction(const QString &id,
+                                                                          const QString &title,
+                                                                          const QString &icon,
+                                                                          const QJSValue &callback);
+    Q_INVOKABLE EchoMusic::EchoPluginRegistration *
+    registerPlayerbarAction(const QString &id, const QString &title, const QString &icon,
+                            const QJSValue &callback);
+    Q_INVOKABLE EchoMusic::EchoPluginTask *createTask(const QString &id, const QString &title);
+
+signals:
+    void settingsChanged();
+    void stateChanged();
+
+private:
+    QUrl m_settingsComponent;
+    QVariantMap m_state;
+    EchoPluginRegistration *action(bool playerbar, const QString &id, const QString &title,
+                                   const QString &icon, const QJSValue &callback);
+    EchoPluginContext &m_scope;
+};
+} // namespace EchoMusic

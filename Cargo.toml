@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/echo-api", "crates/echo-ffi", "crates/echo-log", "crates/echo-audio", "crates/echo-opencc", "crates/echo-media-controls", "tools/ffi-header", "crates/echo-upnp", "crates/echo-airplay", "crates/echo-audio-capture"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "gzip", "brotli", "deflate", "socks"] }
+md-5 = "0.10"
+rsa = "0.9"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# FFI catches panics; abort would invalidate that error boundary.
+panic = "unwind"
+
+
+[patch.crates-io]
+libspa = { path = "crates/echo-audio/vendor/libspa" }
+pipewire = { path = "crates/echo-audio/vendor/pipewire" }

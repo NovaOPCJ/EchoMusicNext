@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>打开 EchoMusicNext 分享</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --text: #181c22;
+        --muted: #687386;
+        --border: #dce2eb;
+        --primary: #2563eb;
+        --primary-text: #ffffff;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12151b;
+          --panel: #1b2029;
+          --text: #eef2f7;
+          --muted: #a6b0c0;
+          --border: #303746;
+          --primary: #60a5fa;
+          --primary-text: #08111f;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+          sans-serif;
+      }
+
+      main {
+        width: min(440px, 100%);
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+      }
+
+      main.is-room-invite {
+        width: min(480px, 100%);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 24px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .room-invite {
+        margin-top: 22px;
+        padding: 18px;
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        align-items: center;
+        gap: 14px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--primary) 6%, var(--panel));
+      }
+
+      .room-invite[hidden] {
+        display: none;
+      }
+
+      .room-icon {
+        width: 48px;
+        height: 48px;
+        display: grid;
+        place-items: center;
+        border-radius: 14px;
+        color: var(--primary);
+        background: color-mix(in srgb, var(--primary) 13%, transparent);
+      }
+
+      .room-icon svg {
+        width: 24px;
+        height: 24px;
+      }
+
+      .room-info {
+        min-width: 0;
+      }
+
+      .room-kind {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .room-name {
+        display: block;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 17px;
+        line-height: 1.4;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .room-id {
+        display: block;
+        margin-top: 4px;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      button,
+      a {
+        min-height: 40px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font: inherit;
+        font-size: 14px;
+        text-decoration: none;
+        color: var(--text);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .primary {
+        border-color: var(--primary);
+        color: var(--primary-text);
+        background: var(--primary);
+      }
+
+      .link {
+        margin-top: 18px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="panel">
+      <h1 id="title">打开 EchoMusicNext 分享</h1>
+      <p id="desc">正在尝试唤起 EchoMusicNext。如果没有反应，可以手动复制链接后在应用内打开。</p>
+      <section id="room-invite" class="room-invite" hidden>
+        <div class="room-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+            <path d="M6 18H5a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h1v5Zm12 0h1a2 2 0 0 0 2-2v-1a2 2 0 0 0-2-2h-1v5Z" />
+            <path d="M18 18c0 2-2 3-4 3" />
+          </svg>
+        </div>
+        <div class="room-info">
+          <span id="room-kind" class="room-kind"></span>
+          <strong id="room-name" class="room-name"></strong>
+          <span id="room-id" class="room-id"></span>
+        </div>
+      </section>
+      <div class="actions">
+        <a id="open" class="primary" href="#">打开 EchoMusicNext</a>
+        <button id="copy" type="button">复制 App 链接</button>
+      </div>
+      <div id="link" class="link"></div>
+    </main>
+
+    <script>
+      const SHARE_SCHEME = 'echomusicnext';
+      const TYPE_LABELS = {
+        song: '歌曲',
+        playlist: '歌单',
+        artist: '歌手',
+        album: '专辑',
+        plugin: '插件',
+        'listen-together': '一起听房间',
+      };
+
+      const isShareType = (value) => Object.prototype.hasOwnProperty.call(TYPE_LABELS, value);
+      const isSongShareId = (value) => /^[a-f0-9]{32}$/i.test(String(value || '').trim());
+      const isPluginShareId = (value) => /^[a-zA-Z0-9._-]+$/.test(String(value || '').trim());
+      const isValidTarget = (target) =>
+        Boolean(target && isShareType(target.type) && target.id && target.id.length <= 512) &&
+        !/[\/\u0000]/.test(target.id) &&
+        (target.type !== 'song' || isSongShareId(target.id)) &&
+        (target.type !== 'plugin' || isPluginShareId(target.id)) &&
+        (target.type !== 'listen-together' || String(target.query?.roomType || '0') === '0');
+
+      const readExtraParams = (searchParams, excludedKeys = []) => {
+        const excluded = new Set(excludedKeys);
+        const seen = new Set();
+        const query = Object.create(null);
+        for (const [key, value] of searchParams) {
+          if (seen.has(key)) throw new Error('duplicate parameter');
+          seen.add(key);
+          const name = key.trim();
+          const text = value.trim();
+          if (name && text && !excluded.has(name)) query[name] = text;
+        }
+        return query;
+      };
+
+      const parseCustomTarget = (value) => {
+        try {
+          const url = new URL(value);
+          if (!['echomusicnext:', 'echomusic:'].includes(url.protocol) ||
+              url.username || url.password || url.port || url.hash) return null;
+          const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+          const query = readExtraParams(url.searchParams);
+          if (segments.length > 1) return null;
+          const id = (segments.shift() || query.id || '').trim();
+          delete query.id;
+          const target = { type: url.hostname, id, query };
+          return isValidTarget(target) ? target : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const parseTarget = () => {
+        try {
+        const url = new URL(window.location.href);
+        readExtraParams(url.searchParams);
+        const customTarget = parseCustomTarget(url.searchParams.get('target') || '');
+        if (customTarget) return customTarget;
+
+        const type = String(url.searchParams.get('type') || '').trim();
+        const id = String(url.searchParams.get('id') || '').trim();
+        const queryTarget = {
+          type,
+          id,
+          query: readExtraParams(url.searchParams, ['type', 'id', 'target']),
+        };
+        if (isValidTarget(queryTarget)) return queryTarget;
+
+        const parts = url.pathname.split('/').filter(Boolean);
+        const shareIndex = parts.lastIndexOf('share');
+        const pathType = shareIndex >= 0 ? parts[shareIndex + 1] : '';
+        const pathId = shareIndex >= 0 ? parts[shareIndex + 2] : '';
+        const pathTarget = {
+          type: pathType,
+          id: decodeURIComponent(pathId || ''),
+          query: readExtraParams(url.searchParams, ['target']),
+        };
+        if (isValidTarget(pathTarget)) return pathTarget;
+
+        return null;
+        } catch { return null; }
+      };
+
+      const buildAppUrl = (target) => {
+        const appUrl = new URL(`${SHARE_SCHEME}://${target.type}/${encodeURIComponent(target.id)}`);
+        Object.entries(target.query || {}).forEach(([key, value]) => {
+          appUrl.searchParams.set(key, value);
+        });
+        const result = appUrl.toString();
+        return new TextEncoder().encode(result).length <= 4096 ? result : '';
+      };
+
+      const parsed = parseTarget();
+      const target = parsed && buildAppUrl(parsed) ? parsed : null;
+      const panel = document.getElementById('panel');
+      const title = document.getElementById('title');
+      const desc = document.getElementById('desc');
+      const open = document.getElementById('open');
+      const copy = document.getElementById('copy');
+      const link = document.getElementById('link');
+      const roomInvite = document.getElementById('room-invite');
+      const roomKind = document.getElementById('room-kind');
+      const roomName = document.getElementById('room-name');
+      const roomId = document.getElementById('room-id');
+
+      if (!target) {
+        title.textContent = '分享链接无效';
+        desc.textContent = '这个链接里没有可打开的 EchoMusicNext 分享内容。';
+        open.style.display = 'none';
+        copy.style.display = 'none';
+      } else {
+        const appUrl = buildAppUrl(target);
+        title.textContent = `打开 EchoMusicNext ${TYPE_LABELS[target.type]}`;
+        open.href = appUrl;
+        link.textContent = appUrl;
+
+        if (target.type === 'listen-together') {
+          const kindLabel = '众乐房';
+          const name = String(target.query?.roomName || '').trim() || `EchoMusicNext ${kindLabel}`;
+          panel.classList.add('is-room-invite');
+          document.title = `${name} · EchoMusicNext 一起听`;
+          title.textContent = '一起听邀请';
+          desc.textContent = '有人邀请你一起听。打开 EchoMusicNext 后可先查看房间详情，再决定是否加入。';
+          roomKind.textContent = kindLabel;
+          roomName.textContent = name;
+          roomId.textContent = `房间号 ${target.id}`;
+          roomInvite.hidden = false;
+          open.textContent = '在 EchoMusicNext 中查看';
+        }
+
+        const openApp = () => {
+          window.location.href = appUrl;
+        };
+
+        open.addEventListener('click', (event) => {
+          event.preventDefault();
+          openApp();
+        });
+
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(appUrl);
+            copy.textContent = '已复制';
+          } catch {
+            copy.textContent = '复制失败';
+          }
+          window.setTimeout(() => {
+            copy.textContent = '复制 App 链接';
+          }, 1800);
+        });
+
+        // 一起听分享需要保留邀请前置页，让用户确认房间后再主动唤起应用。
+        if (target.type !== 'listen-together') window.setTimeout(openApp, 200);
+      }
+    </script>
+  </body>
+</html>

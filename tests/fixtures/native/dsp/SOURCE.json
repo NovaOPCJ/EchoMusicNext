@@ -1,0 +1,18 @@
+{
+  "source": "EchoMusicViper/build/libEchoMusicViper.dylib",
+  "capturedAt": "2026-10-13",
+  "platform": "macOS arm64",
+  "sha256": "b1f7bb4937d3cdfa15b12d626b39c0071171d827fa8e8f770451f8b04ccc4898",
+  "bytes": 62642464,
+  "abi": 2,
+  "sampleRate": 48000,
+  "channels": 2,
+  "blockFrames": 512,
+  "mode": "speaker",
+  "resourceJson": null,
+  "presetJson": null,
+  "capture": "Actual echo_dsp_get_api/create returned descriptor; JSON strings decoded to objects; destroy called. This is native ABI metadata, not an API wire sample.",
+  "headerSha256": "2227ef4a36e51de3e047d067c8d4396fa9493c01ead57d550f512143d60bf6ce",
+  "minimumMacOS": "15.0",
+  "buildSdk": "15.5"
+}

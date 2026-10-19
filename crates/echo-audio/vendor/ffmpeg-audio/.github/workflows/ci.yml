@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 发版前由 release.yml 调用，调用方传 full: true
+  workflow_call:
+    inputs:
+      full:
+        description: "强制跑完整矩阵"
+        type: boolean
+        default: false
+  # 手动入口：默认就是完整矩阵，用于验证常驻子集覆盖不到的平台。
+  # 改动构建配置后必须跑一次，见 CLAUDE.md。
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "跑完整矩阵（关闭时只跑 main 上那套常驻子集）"
+        type: boolean
+        default: true
+
+jobs:
+  # 决定本次跑哪些 target：PR 与发版跑完整矩阵，main 上的普通提交只跑常驻子集。
+  # 筛选而不是给整个 job 加 if，是为了让 Test (...) 这些检查在每种事件下都照常上报。
+  select:
+    name: Select targets
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.select.outputs.include }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Select targets
+        id: select
+        env:
+          # inputs 上下文只在 workflow_call / workflow_dispatch 下被填充，
+          # 其余事件下求值为空字符串，因此这里要带上事件名一起判定。
+          FULL: ${{ github.event_name == 'pull_request' || inputs.full }}
+        run: node scripts/ci/select-platforms.ts
+
+  test:
+    name: Test (${{ matrix.target }})
+    needs: select
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 矩阵定义在 scripts/ci/platforms.ts
+        include: ${{ fromJSON(needs.select.outputs.include) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+          components: rust-src
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && !matrix.cross && !matrix.llvm_mingw
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev ${{ matrix.apt_packages }}
+
+      - name: Setup MSVC Compiler
+        if: runner.os == 'Windows' && matrix.msvc_arch
+        uses: apoint123/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      - name: Install Emscripten SDK
+        if: matrix.emscripten
+        uses: emscripten-core/setup-emsdk@v16
+
+      - name: Install LLVM-MinGW
+        if: matrix.llvm_mingw
+        run: |
+          wget https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "$(pwd)/llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Add Emscripten target
+        if: matrix.emscripten
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Run cross check
+        if: matrix.cross
+        run: cross check --target ${{ matrix.target }} --workspace
+
+      - name: Run sys-only check
+        if: matrix.check_sys_only
+        run: cargo check --target ${{ matrix.target }} -p ffmpeg_audio_sys
+
+      - name: Run cargo check
+        if: "!matrix.cross && !matrix.check_sys_only && matrix.check_only"
+        run: cargo check --target ${{ matrix.target }} --workspace
+
+      - name: Run cargo test
+        if: "!matrix.cross && !matrix.check_sys_only && !matrix.check_only"
+        run: cargo test --target ${{ matrix.target }} -p ffmpeg_audio
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src
+
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, rust-src
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  ts:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Type check
+        run: pnpm run typecheck
+
+      - name: Check crate versions are in sync
+        run: node scripts/release/sync-cargo-versions.ts --check
+
+      - name: Check changesets
+        run: node scripts/release/check-release-plan.ts

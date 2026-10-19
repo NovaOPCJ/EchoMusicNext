@@ -1,0 +1,1 @@
+Cargo manifests materialize the upstream workspace package and dependency values without changing their versions/features. Cargo.upstream.toml retains the original standalone workspace; the Qt host workspace owns the actual dependency graph. Source/licenses remain upstream.

@@ -1,0 +1,40 @@
+qt_add_qml_module(
+    echo_search
+    STATIC
+    URI
+    EchoMusic.Search
+    SOURCES
+    SearchModel.h
+    SearchModel.cpp
+    SearchSuggestionModel.h
+    SearchSuggestionModel.cpp
+    SearchResultModel.h
+    SearchResultModel.cpp
+    SearchRouteCoordinator.h
+    SearchRouteCoordinator.cpp
+    QML_FILES
+    SearchPage.qml
+    SearchRoutePage.qml
+    SearchStatus.qml
+    SearchHeader.qml
+    SearchSongToolbar.qml
+    SearchDiscovery.qml
+    SearchResultsSkeleton.qml
+    SearchBox.qml
+)
+target_include_directories(echo_search PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_search
+    PUBLIC echo_playback_service echo_bridge Qt6::Qml
+    PRIVATE echo_music
+            echo_musicplugin
+            echo_storage
+            echo_build_options
+            echo_shell
+            echo_shellplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::QuickControls2
+)

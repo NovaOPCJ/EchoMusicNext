@@ -1,0 +1,57 @@
+[target.wasm32-unknown-emscripten]
+rustflags = [
+    "-C",
+    "target-feature=+simd128",
+
+    "-C",
+    "target-feature=+bulk-memory",
+
+    "-C",
+    "target-feature=+nontrapping-fptoint",
+
+    "-C",
+    "target-feature=+sign-ext",
+
+    "-C",
+    "target-feature=+mutable-globals",
+
+    "-C",
+    "linker-plugin-lto",
+
+    "-C",
+    "link-arg=-sEXPORT_ES6=1",
+    "-C",
+    "link-arg=-sMODULARIZE=1",
+]
+
+# With MODULARIZE the emitted .js only exports a factory, so `node <bin>` would load it without
+# running anything. Import the factory and call it instead; the Emscripten runtime reads the test
+# arguments from `process.argv` itself.
+runner = [
+    "node",
+    "--input-type=module",
+    "-e",
+    'import { pathToFileURL } from "node:url"; const { default: init } = await import(pathToFileURL(process.argv[1]).href); await init();',
+]
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-C",
+    "target-feature=+simd128",
+
+    "-C",
+    "target-feature=+bulk-memory",
+
+    "-C",
+    "target-feature=+nontrapping-fptoint",
+
+    "-C",
+    "target-feature=+sign-ext",
+
+    "-C",
+    "target-feature=+mutable-globals",
+]
+
+[unstable]
+build-std = ["core", "alloc", "std", "panic_abort", "proc_macro"]
+panic-immediate-abort = true

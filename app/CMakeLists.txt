@@ -1,0 +1,124 @@
+qt_add_executable(echomusicnext main.cpp Application.h Application.cpp)
+if(NOT APPLE)
+    if(WIN32)
+        set(ECHO_APP_ICON assets/icon.ico)
+    else()
+        set(ECHO_APP_ICON assets/linux-icon.png)
+    endif()
+    qt_add_resources(echomusicnext echo_application_icon PREFIX /echo/app FILES ${ECHO_APP_ICON})
+    target_compile_definitions(
+        echomusicnext PRIVATE ECHO_APP_ICON_PATH=":/echo/app/${ECHO_APP_ICON}"
+    )
+endif()
+if(APPLE)
+    target_sources(echomusicnext PRIVATE assets/icon.icns)
+    set_source_files_properties(assets/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(echomusicnext PROPERTIES MACOSX_BUNDLE_ICON_FILE icon.icns)
+elseif(WIN32)
+    enable_language(RC)
+    configure_file(Application.rc.in ${CMAKE_CURRENT_BINARY_DIR}/Application.rc @ONLY)
+    target_sources(echomusicnext PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/Application.rc)
+elseif(UNIX)
+    include(GNUInstallDirs)
+    configure_file(
+        echomusicnext.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/${ECHO_APPLICATION_ID}.desktop @ONLY
+    )
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${ECHO_APPLICATION_ID}.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    )
+    install(
+        FILES assets/linux-icon.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+        RENAME ${ECHO_APPLICATION_ID}.png
+    )
+    install(
+        FILES ../modules/EchoMusic/Shell/assets/tray-symbolic.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/status
+        RENAME ${ECHO_APPLICATION_ID}-symbolic.svg
+    )
+endif()
+target_compile_definitions(
+    echomusicnext PRIVATE ECHO_DISTRIBUTION_BUILD=$<BOOL:${ECHO_DISTRIBUTION_BUILD}>
+                          ECHO_APPLICATION_ID="${ECHO_APPLICATION_ID}"
+)
+target_link_libraries(
+    echomusicnext
+    PRIVATE echo_startup
+            echo_plugins
+            echo_pluginsplugin
+            echo_plugin_sdkplugin
+            echo_playback_service
+            echo_playback
+            echo_build_options
+            echo_account
+            echo_accountui
+            echo_library
+            echo_libraryui
+            echo_logging
+            echo_network
+            echo_storage
+            echo_discovery
+            echo_discoveryplugin
+            echo_listen_together
+            echo_listen_togetherplugin
+            echo_sharing_ui
+            echo_sharing_uiplugin
+            echo_playlists
+            echo_playlistsplugin
+            echo_details
+            echo_detailsplugin
+            echo_albums
+            echo_albumsplugin
+            echo_artists
+            echo_artistsplugin
+            echo_history
+            echo_historyplugin
+            echo_favorites
+            echo_favoritesplugin
+            echo_cloud
+            echo_cloudplugin
+            echo_purchased
+            echo_purchasedplugin
+            echo_search
+            echo_profile
+            echo_shell
+            echo_theme
+            echo_appui
+            echo_appuiplugin
+            echo_settings
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Widgets
+            Qt6::Qml
+            Qt6::QuickControls2
+)
+set_target_properties(
+    echomusicnext
+    PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+               MACOSX_BUNDLE TRUE
+               MACOSX_BUNDLE_GUI_IDENTIFIER "${ECHO_APPLICATION_ID}"
+               MACOSX_BUNDLE_BUNDLE_NAME EchoMusicNext
+               MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+               MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+               WIN32_EXECUTABLE TRUE
+)
+echo_copy_rust_runtime(echomusicnext)
+
+add_dependencies(echomusicnext echo-theme-image-worker)
+if(APPLE)
+    add_custom_command(
+        TARGET echomusicnext
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_BUNDLE_DIR:echomusicnext>/Contents/Helpers"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-theme-image-worker>"
+                "$<TARGET_BUNDLE_DIR:echomusicnext>/Contents/Helpers/echo-theme-image-worker"
+    )
+else()
+    add_custom_command(
+        TARGET echomusicnext
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:echo-theme-image-worker>"
+                "$<TARGET_FILE_DIR:echomusicnext>"
+    )
+endif()

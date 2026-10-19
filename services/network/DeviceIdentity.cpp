@@ -1,0 +1,117 @@
+#include "DeviceIdentity.h"
+#include <QCryptographicHash>
+#include <QRegularExpression>
+#include <QSettings>
+#include <QUuid>
+#include <QRandomGenerator>
+
+namespace EchoMusic
+{
+namespace
+{
+QString createDeviceGuid()
+{
+    // EchoMusic initApiServer derives its 32-character GUID as MD5(getGuid()).
+    const auto source = QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Md5).toHex());
+}
+} // namespace
+QString DeviceIdentity::midForGuid(const QString &guid)
+{
+    const auto digest = QCryptographicHash::hash(guid.toUtf8(), QCryptographicHash::Md5);
+    // MID is the full unsigned 128-bit digest rendered in decimal. Use base-256
+    // accumulation so MSVC and Clang agree without non-portable __int128.
+    QString decimal = QStringLiteral("0");
+    for (const auto byte : digest) {
+        unsigned carry = static_cast<unsigned char>(byte);
+        for (qsizetype i = decimal.size(); i-- > 0;) {
+            carry += unsigned(decimal.at(i).digitValue()) * 256;
+            decimal[i] = QChar(char('0' + carry % 10));
+            carry /= 10;
+        }
+        while (carry) {
+            decimal.prepend(QChar(char('0' + carry % 10)));
+            carry /= 10;
+        }
+    }
+    return decimal;
+}
+DeviceIdentity DeviceIdentity::temporary()
+{
+    const auto guid = createDeviceGuid();
+    return {midForGuid(guid),
+            QStringLiteral("-"),
+            guid,
+            QStringLiteral("02:00:00:00:00:00"),
+            QStringLiteral("EchoMusicNext"),
+            QStringLiteral("-"),
+            QString::number(QRandomGenerator::global()->generate64())};
+}
+bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity &device)
+{
+    if (!QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(device.guid).hasMatch() ||
+        device.mid != midForGuid(device.guid) || device.dfid.isEmpty() ||
+        device.dfid == QStringLiteral("-") || device.mac.isEmpty() || device.deviceName.isEmpty() ||
+        device.uuid.isEmpty() || device.renderFingerprint.isEmpty())
+        return false;
+    // One value preserves the DFID/GUID association as a complete preference snapshot.
+    settings.setValue(QStringLiteral("network/registeredDevice"),
+                      QVariantMap{{"guid", device.guid},
+                                  {"dfid", device.dfid},
+                                  {"mid", device.mid},
+                                  {"mac", device.mac},
+                                  {"uuid", device.uuid},
+                                  {"renderFingerprint", device.renderFingerprint}});
+    settings.sync();
+    return settings.status() == QSettings::NoError;
+}
+DeviceIdentity DeviceIdentity::load(QSettings &settings)
+{
+    const auto registered = settings.value(QStringLiteral("network/registeredDevice")).toMap();
+    const auto guidValue = registered.value("guid").toString();
+    const auto dfidValue = registered.value("dfid").toString();
+    if (QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(guidValue).hasMatch() &&
+        !dfidValue.isEmpty() && dfidValue != QStringLiteral("-") &&
+        registered.value("mid").toString() == midForGuid(guidValue) &&
+        !registered.value("mac").toString().isEmpty() &&
+        !registered.value("uuid").toString().isEmpty() &&
+        !registered.value("renderFingerprint").toString().isEmpty()) {
+        return {midForGuid(guidValue),
+                dfidValue,
+                guidValue,
+                registered.value("mac").toString(),
+                QStringLiteral("EchoMusicNext"),
+                registered.value("uuid").toString(),
+                registered.value("renderFingerprint").toString()};
+    }
+
+    QString guid = settings.value(QStringLiteral("network/deviceGuid")).toString();
+    if (!QRegularExpression(QStringLiteral("^[0-9a-f]{32}$")).match(guid).hasMatch()) {
+        guid = createDeviceGuid();
+        settings.setValue(QStringLiteral("network/deviceGuid"), guid);
+        settings.remove(QStringLiteral("network/deviceFingerprint"));
+    }
+    QString fingerprint =
+        settings.value(QStringLiteral("network/deviceFingerprint"), QStringLiteral("-")).toString();
+    if (fingerprint.isEmpty())
+        fingerprint = QStringLiteral("-");
+    auto value = [&settings](const QString &key, const QString &fallback) {
+        auto result = settings.value(key).toString();
+        if (result.isEmpty()) {
+            result = fallback;
+            settings.setValue(key, result);
+        }
+        return result;
+    };
+    // These are protocol identities, not credentials or a hardware MAC lookup.
+    // SID/EDT uses a persistent native fingerprint surrogate, as the old Node host did.
+    return {midForGuid(guid),
+            fingerprint,
+            guid,
+            value(QStringLiteral("network/deviceMac"), QStringLiteral("02:00:00:00:00:00")),
+            QStringLiteral("EchoMusicNext"),
+            value(QStringLiteral("network/deviceUuid"), QStringLiteral("-")),
+            value(QStringLiteral("network/renderFingerprint"),
+                  QString::number(QRandomGenerator::global()->generate64()))};
+}
+} // namespace EchoMusic

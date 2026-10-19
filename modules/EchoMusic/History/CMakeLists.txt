@@ -1,0 +1,37 @@
+qt_add_qml_module(
+    echo_history
+    STATIC
+    URI
+    EchoMusic.History
+    DEPENDENCIES
+    EchoMusic.Music
+    EchoMusic.Playback
+    EchoMusic.Shell
+    SOURCES
+    HistoryService.h
+    HistoryService.cpp
+    HistoryStatsShare.h
+    HistoryStatsShare.cpp
+    QML_FILES
+    HistoryPage.qml
+    HistoryHeader.qml
+    HistoryStatsContent.qml
+    HistoryStatsCapture.qml
+)
+target_link_libraries(
+    echo_history
+    PUBLIC echo_music echo_shell echo_playback_service
+    PRIVATE echo_bridge
+            echo_playback
+            echo_playbackplugin
+            echo_shellplugin
+            echo_musicplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            echo_build_options
+            Qt6::Quick
+            Qt6::QuickControls2
+)
+target_include_directories(echo_history PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

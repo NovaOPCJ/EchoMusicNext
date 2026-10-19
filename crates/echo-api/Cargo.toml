@@ -1,0 +1,64 @@
+[package]
+name = "echo-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+local-api-fixtures = []
+
+[dependencies]
+echo-log = { path = "../echo-log" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+md-5.workspace = true
+rsa.workspace = true
+aes = "0.8"
+cbc = "0.1"
+base64 = "0.22"
+sha2 = "0.10"
+sha1 = "0.10"
+flate2 = "1"
+regex = "1"
+serde_path_to_error = "=0.1.20"
+
+[lints]
+workspace = true
+
+[[test]]
+name = "collection_social"
+path = "tests/collection_social.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "contracts"
+path = "tests/contracts.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "detail_contracts"
+path = "tests/detail_contracts.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "discovery_contracts"
+path = "tests/discovery_contracts.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "listen_together"
+path = "tests/listen_together.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "login_provider_contracts"
+path = "tests/login_provider_contracts.rs"
+required-features = ["local-api-fixtures"]
+
+[[test]]
+name = "personal_fm"
+path = "tests/personal_fm.rs"
+required-features = ["local-api-fixtures"]

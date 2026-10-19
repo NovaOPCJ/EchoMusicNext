@@ -1,0 +1,28 @@
+{
+  "source": "EchoMusic/native/echo-media-controls",
+  "sampled_at": "2026-10-13",
+  "original_sha256": {
+    "src/lib.rs": "0d3ca89debed9cbf216e24da9967a9f3a3a61bcff96f396515f57af0c5c07210",
+    "src/model.rs": "7735727d95d03b9911e212a6bda049fedd1acb7110225d4e643d96cb16de9c3a",
+    "src/sys_media/macos.rs": "6ecbec14176dcac27d2ac6342ab16470edf926de7e9f212964d17474ab136bfe",
+    "src/sys_media/mod.rs": "09e1db08f398755c4f940f2d51f25f269f2261584666c4972cd3730e13d05aac",
+    "src/sys_media/windows.rs": "303bc548894bf2f0d5379f372e190abd7866723c5da65e2ee51b9b5b10d0054d",
+    "src/sys_media/linux.rs": "99334534c403bbb7bed9867156d8ad1e4a2ac797ceea80293c6077ff3a4fc0d2"
+  },
+  "removed": [
+    "N-API exports",
+    "Node callback/task wrappers",
+    "napi-build"
+  ],
+  "incremental_sync": {
+    "date": "2026-10-17",
+    "commit": "36a80899052785d26ee5d5101d4bbcf0908d7947",
+    "baseline": "0be31e97",
+    "source_sha256": {
+      "src/model.rs": "a07c67b1259ea1c25e1017d0d8940d5446d17a857fd99d9045bdeb28b86452b2",
+      "src/sys_media/linux.rs": "30b77aff2c369bb2a198f0bbd8a82711fffee563dfea7157f32b77730163f834",
+      "src/sys_media/macos.rs": "ba81b993d98a00dcdb115e894862d2b72eaa791530f7bf22df4a3c85e9d1d78a"
+    },
+    "host_adaptation": "N-API Buffer stays excluded; separate borrowed binary C ABI cover copied once into native Arc<Vec<u8>>, Linux actor shares ownership and macOS copies only at NSData boundary"
+  }
+}

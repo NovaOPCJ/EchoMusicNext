@@ -1,0 +1,17 @@
+[package]
+license = "GPL-3.0-only"
+name = "echo-upnp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+rupnp = { path = "vendor/rupnp", default-features = false, features = ["full_device_spec"] }
+http = "1"
+tokio = { version = "1", features = ["time"] }
+serde_json = "1"
+

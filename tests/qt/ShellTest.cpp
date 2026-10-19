@@ -1,0 +1,1944 @@
+#include <QJsonArray>
+#include "AccountUiFixture.h"
+#include "QrLoginTestAccess.h"
+#include <QBuffer>
+#include <QImage>
+#include "RouteController.h"
+#include "NativeWindow.h"
+#include "SearchModel.h"
+#include "SearchRouteCoordinator.h"
+#include "ShellSettings.h"
+#include "ShellController.h"
+#include "ThemeStore.h"
+#include "UiTypography.h"
+#include "WindowController.h"
+#include <QAbstractItemModelTester>
+#include <QFont>
+#include <QDir>
+#include <QPointer>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickStyle>
+#include <QSignalSpy>
+#include <QSGRendererInterface>
+#include <QTemporaryDir>
+#include <QtTest>
+using namespace EchoMusic;
+namespace EchoMusic
+{
+// Canonical UI-only catalog rows; no provider response or account is fabricated.
+class UserPlaylistModelTestAccess
+{
+public:
+    static void pinned(UserPlaylistModel &model)
+    {
+        model.beginResetModel();
+        model.m_rows.clear();
+        for (quint32 kind : {1u, 2u}) {
+            UserPlaylistModel::Row row;
+            row.globalId = QString("sidebar-test-%1").arg(kind);
+            row.title = kind == 1 ? QStringLiteral("默认歌单") : QStringLiteral("我喜欢的音乐");
+            row.defaultKind = kind;
+            row.sourceCode = 1;
+            model.m_rows.append(row);
+        }
+        model.endResetModel();
+        emit model.changed();
+    }
+};
+// Canonical control-flow seam. capabilities() has no upstream HTTP and these
+// values do not serve as provider samples or successful login evidence.
+class ApiClientTestAccess
+{
+public:
+    static int pendingCount(const ApiClient &api)
+    {
+        return api.m_pending.size();
+    }
+};
+class AccountControllerTestAccess
+{
+public:
+    static void enableOnline(AccountController &controller)
+    {
+        controller.m_online = true;
+    }
+    static quint64 holdSms(AccountController &controller, ApiClient &api, bool sending)
+    {
+        controller.m_online = true;
+        controller.m_smsCountdown = 0;
+        controller.m_smsTimer.stop();
+        const auto id = api.capabilities();
+        if (sending)
+            controller.m_sendSms = id;
+        else
+            controller.m_smsLogin = id;
+        emit controller.changed();
+        return id;
+    }
+};
+} // namespace EchoMusic
+namespace
+{
+RouteController::Definition definition(QString name, bool cached = true)
+{
+    return {name,
+            "/" + name + "/:id",
+            QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml"),
+            {"tab"},
+            cached};
+}
+void drain()
+{
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
+}
+QQuickItem *findVisual(QQuickItem *root, const QString &name)
+{
+    if (root->objectName() == name)
+        return root;
+    for (auto *child : root->childItems())
+        if (auto *found = findVisual(child, name))
+            return found;
+    return nullptr;
+}
+QQuickItem *findVisibleVisual(QQuickItem *root, const QString &name)
+{
+    if (!root->isVisible())
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    for (auto *child : root->childItems())
+        if (auto *found = findVisibleVisual(child, name))
+            return found;
+    return nullptr;
+}
+QObject *probe(QObject *root, RouteContext *context)
+{
+    return findVisual(qobject_cast<QQuickItem *>(root), "probe-" + context->instanceId());
+}
+} // namespace
+class ShellTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void initTestCase()
+    {
+        QQuickStyle::setStyle("Basic");
+        configureUiTypography();
+    }
+    void smsRequestsShareOneSubmissionLifetime()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi(api);
+        auto &controller = accountUi.controller;
+        controller.openLogin();
+        controller.setMethod(1);
+        for (const bool sending : {true, false}) {
+            const auto id = AccountControllerTestAccess::holdSms(controller, api, sending);
+            const auto count = ApiClientTestAccess::pendingCount(api);
+            QCOMPARE(controller.sendingSms(), sending);
+            QCOMPARE(controller.busy(), !sending);
+            controller.sendSms(QStringLiteral("13800000000"));
+            controller.submitSms(QStringLiteral("13800000000"), QStringLiteral("unit-code"));
+            QCOMPARE(ApiClientTestAccess::pendingCount(api), count);
+            QCOMPARE(controller.sendingSms(), sending);
+            QCOMPARE(controller.busy(), !sending);
+            QVERIFY(api.cancel(id));
+            QTRY_VERIFY(!controller.sendingSms() && !controller.busy());
+        }
+        controller.closeLogin();
+    }
+    void liveQrMethodSwitchesCreateFreshSessions()
+    {
+        if (!qEnvironmentVariableIsSet("ECHO_LIVE_QR_SWITCH"))
+            QSKIP("Opt-in anonymous create/switch/cancel only; no account login");
+        ApiClient api(DeviceIdentity::temporary());
+        int expiries = 0;
+        Test::AccountUiFixture fixture(api);
+        AccountControllerTestAccess::enableOnline(fixture.controller);
+        fixture.controller.openLogin();
+        for (auto *qr :
+             {fixture.controller.qr(), fixture.controller.qq(), fixture.controller.wechat()})
+            connect(qr, &QrLoginService::changed, this,
+                    [qr, &expiries] { expiries += qr->state() == QrLoginService::State::Expired; });
+        for (int method : {0, 3, 4, 0, 3, 4}) {
+            fixture.controller.setMethod(method);
+            auto *active = method == 0   ? fixture.controller.qr()
+                           : method == 3 ? fixture.controller.qq()
+                                         : fixture.controller.wechat();
+            QCOMPARE(active->state(), QrLoginService::State::Creating);
+            QVERIFY(active->imageDataUrl().isEmpty());
+            QTRY_VERIFY_WITH_TIMEOUT(active->state() != QrLoginService::State::Creating, 65000);
+            QCOMPARE(active->state(), QrLoginService::State::Waiting);
+            QVERIFY(!active->imageDataUrl().isEmpty());
+            for (auto *qr :
+                 {fixture.controller.qr(), fixture.controller.qq(), fixture.controller.wechat()})
+                if (qr != active) {
+                    QCOMPARE(qr->state(), QrLoginService::State::Idle);
+                    QVERIFY(qr->imageDataUrl().isEmpty());
+                }
+        }
+        // Switch again while creation has no chance to complete on the GUI.
+        fixture.controller.setMethod(0);
+        fixture.controller.setMethod(3);
+        fixture.controller.setMethod(4);
+        fixture.controller.setMethod(0);
+        QTRY_COMPARE_WITH_TIMEOUT(fixture.qr.state(), QrLoginService::State::Waiting, 65000);
+        QCOMPARE(expiries, 0);
+        fixture.controller.closeLogin();
+        QCOMPARE(fixture.qr.state(), QrLoginService::State::Idle);
+        QSignalSpy closed(&api, &ApiClient::closed);
+        api.shutdown();
+        QTRY_COMPARE(closed.size(), 1);
+    }
+    void productionLoginSurfaceUsesOnlyItsBackground()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi(api);
+        SearchModel search(api);
+        RouteController routes;
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1400, 1000);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        qInfo() << "Login rendering platform" << QGuiApplication::platformName() << "graphics API"
+                << window->rendererInterface()->graphicsApi();
+        const auto artifacts = qEnvironmentVariable("ECHO_ACCOUNT_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QDir().mkpath(artifacts);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const auto scale : {1.0, 1.25}) {
+                shell.resetZoom();
+                while (shell.uiScale() < scale - 0.001)
+                    shell.zoomIn();
+                for (const bool frost : {false, true}) {
+                    theme.setFloatingFrosted(frost);
+                    for (int cycle = 0; cycle < 2; ++cycle) {
+                        accountUi.controller.openLogin();
+                        auto *card = findVisibleVisual(window->contentItem(), "loginCard");
+                        QVERIFY(card);
+                        QTest::qWait(150);
+                        auto *backdrop = window->property("echoBackdropRoot").value<QQuickItem *>();
+                        QVERIFY(backdrop);
+                        QCOMPARE(backdrop->objectName(), QString("loginBackdropScene"));
+                        QCOMPARE(card->property("hasBackdrop").toBool(), frost);
+                        const auto image = window->grabWindow();
+                        QVERIFY(!image.isNull());
+                        const auto point = card->mapToScene({12, card->height() / 2});
+                        const auto pixel =
+                            image.pixelColor(qRound(point.x() * image.width() / window->width()),
+                                             qRound(point.y() * image.height() / window->height()));
+                        if (!artifacts.isEmpty() && cycle == 0)
+                            QVERIFY(image.save(artifacts + QString("/login-%1-%2-frost%3.png")
+                                                               .arg(int(mode))
+                                                               .arg(scale)
+                                                               .arg(frost)));
+                        const auto expected = theme.elevated();
+                        qInfo() << "Login surface" << mode << scale << frost << cycle << "pixel"
+                                << pixel << "expected" << expected;
+                        QVERIFY2(qAbs(pixel.red() - expected.red()) <= 3 &&
+                                     qAbs(pixel.green() - expected.green()) <= 3 &&
+                                     qAbs(pixel.blue() - expected.blue()) <= 3,
+                                 "Login surface must not sample its own card/effect graph");
+                        accountUi.controller.closeLogin();
+                        QTRY_VERIFY(!findVisibleVisual(window->contentItem(), "loginCard"));
+                        QTRY_COMPARE(window->property("echoBackdropRoot")
+                                         .value<QQuickItem *>()
+                                         ->objectName(),
+                                     QString("shellFrame"));
+                    }
+                }
+            }
+        }
+        root.reset();
+        api.shutdown();
+    }
+    void productionAccountEntryOverlayAndDraftLifetime()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi(api);
+        SearchModel search(api);
+        RouteController routes;
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        routes.navigate("search");
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1400, 900);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto visible = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        auto click = [&](QQuickItem *item) {
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                              item->mapToScene({item->width() / 2, item->height() / 2}).toPoint());
+        };
+        auto *route = routes.current();
+        // The offscreen platform's input helper does not wait for exposure;
+        // wait for production layouts before calculating the hover coordinate.
+        QSignalSpy initialFrames(window, &QQuickWindow::frameSwapped);
+        window->update();
+        QTRY_VERIFY(!initialFrames.isEmpty());
+        const auto nativeTipCount = [&] {
+            QSet<QObject *> visited;
+            int count = 0;
+            const auto visit = [&](auto &&self, QObject *object) -> void {
+                if (!object || visited.contains(object))
+                    return;
+                visited.insert(object);
+                count += object->inherits("QQuickToolTip");
+                for (auto *child : object->children())
+                    self(self, child);
+                if (auto *item = qobject_cast<QQuickItem *>(object))
+                    for (auto *child : item->childItems())
+                        self(self, child);
+            };
+            visit(visit, root.data());
+            return count;
+        };
+        const auto nativeBusinessPopups = [&] {
+            QSet<QObject *> visited;
+            QList<QObject *> found;
+            const auto visit = [&](auto &&self, QObject *object) -> void {
+                if (!object || visited.contains(object))
+                    return;
+                visited.insert(object);
+                if (object->inherits("QQuickPopup") && !object->inherits("QQuickToolTip"))
+                    found.append(object);
+                for (auto *child : object->children())
+                    self(self, child);
+                if (auto *item = qobject_cast<QQuickItem *>(object))
+                    for (auto *child : item->childItems())
+                        self(self, child);
+            };
+            visit(visit, root.data());
+            return found;
+        };
+        qInfo() << "Production Main idle business Popups:" << nativeBusinessPopups().size();
+        QCOMPARE(nativeBusinessPopups().size(), 0);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            auto *trigger = visible("sidebarAccountTrigger");
+            QVERIFY(trigger);
+            click(trigger);
+            QTRY_COMPARE(nativeBusinessPopups().size(), 1);
+            QPointer<QObject> retired = nativeBusinessPopups().first();
+            QTRY_VERIFY(retired->property("opened").toBool());
+            QVERIFY(QMetaObject::invokeMethod(retired, "close"));
+            QTRY_VERIFY(retired.isNull());
+            QTRY_COMPARE(nativeBusinessPopups().size(), 0);
+        }
+        Test::moveNativePointer(window, {400, 15});
+        QTest::qWait(550);
+        qInfo() << "Production Main idle native ToolTips:" << nativeTipCount();
+        QCOMPARE(nativeTipCount(), 0);
+        for (const auto &name : {"titlebarBackAction", "titlebar-action-recognize"}) {
+            auto *disabled = visible(name);
+            QVERIFY2(disabled && !disabled->isEnabled(),
+                     qPrintable(QString("%1 exists=%2 enabled=%3 back=%4 route=%5")
+                                    .arg(name)
+                                    .arg(disabled != nullptr)
+                                    .arg(disabled ? disabled->isEnabled() : false)
+                                    .arg(routes.canGoBack())
+                                    .arg(routes.current()->name())));
+            QSignalSpy clicks(disabled, SIGNAL(clicked()));
+            Test::moveNativePointer(window, disabled->mapToScene({17, 17}).toPoint());
+            QTRY_VERIFY(disabled->property("hoverHighlighted").toBool());
+            auto *background = disabled->property("background").value<QQuickItem *>();
+            QVERIFY(background);
+            QVERIFY(background->property("color").value<QColor>().alpha() > 0);
+            click(disabled);
+            QCOMPARE(clicks.size(), 0);
+            QCOMPARE(routes.current(), route);
+        }
+        auto *user = visible("sidebarUserLink");
+        QVERIFY(user);
+        auto *shortcut = visible("sidebarLayoutTrigger");
+        QVERIFY(shortcut);
+        auto *tip = shortcut->findChild<QObject *>(QStringLiteral("iconButtonToolTip"));
+        QVERIFY(tip);
+        const auto hoverPoint =
+            shortcut->mapToScene({shortcut->width() / 2, shortcut->height() / 2}).toPoint();
+        Test::moveNativePointer(window, hoverPoint);
+        QTRY_VERIFY(shortcut->property("hovered").toBool());
+        QTRY_VERIFY(tip->property("requestedVisible").toBool());
+        QTRY_VERIFY2(
+            tip->property("visible").toBool(),
+            qPrintable(QString("eligible=%1 dismissed=%2 requested=%3 has-popup=%4 at=%5,%6")
+                           .arg(tip->property("eligible").toBool())
+                           .arg(tip->property("dismissedUntilHoverEnds").toBool())
+                           .arg(tip->property("requestedVisible").toBool())
+                           .arg(tip->property("popup").value<QObject *>() != nullptr)
+                           .arg(hoverPoint.x())
+                           .arg(hoverPoint.y())));
+        qInfo() << "Production Main hovered native ToolTips:" << nativeTipCount();
+        QCOMPARE(nativeTipCount(), 1);
+        // Open without moving the pointer: an existing popup hint must close
+        // even though its painted anchor still occupies the same position.
+        accountUi.controller.openLogin();
+        QTRY_VERIFY(!shortcut->isEnabled());
+        QTRY_VERIFY(!tip->property("visible").toBool());
+        QTRY_COMPARE(nativeTipCount(), 0);
+        QTest::qWait(550);
+        QVERIFY(!tip->property("visible").toBool());
+        accountUi.controller.closeLogin();
+        QTRY_VERIFY(shortcut->isEnabled());
+        QVERIFY(Test::prepareNativeInput(window));
+        Test::moveNativePointer(window, {window->width() - 20, window->height() / 2});
+        QTRY_VERIFY(!shortcut->property("hovered").toBool());
+        Test::moveNativePointer(
+            window,
+            shortcut->mapToScene({shortcut->width() / 2, shortcut->height() / 2}).toPoint());
+        QTRY_VERIFY(shortcut->property("hovered").toBool());
+        QTRY_VERIFY(tip->property("requestedVisible").toBool());
+        QVERIFY(!tip->property("visible").toBool());
+        // Also cancel a hint which has not completed its 500ms delay yet.
+        accountUi.controller.openLogin();
+        QTest::qWait(550);
+        QVERIFY(!tip->property("visible").toBool());
+        accountUi.controller.closeLogin();
+        click(user);
+        QTRY_VERIFY(accountUi.controller.loginOpen());
+        QTRY_VERIFY(visible("loginOverlay"));
+        auto *back = visible("loginBackButton");
+        QVERIFY(back);
+        QCOMPARE(back->position(), QPointF(24, 48));
+        QCOMPARE(back->size(), QSizeF(40, 40));
+        QCOMPARE(routes.current(), route);
+        for (const auto mode : {ThemeStore::Dark, ThemeStore::Light}) {
+            if (!accountUi.controller.loginOpen())
+                accountUi.controller.openLogin();
+            theme.setMode(mode);
+            accountUi.controller.setMethod(2);
+            QQuickItem *username = nullptr, *password = nullptr;
+            QTRY_VERIFY((username = visible("loginUsername")) &&
+                        (password = visible("loginPassword")));
+            auto *submit = visible("loginSubmit");
+            QVERIFY(submit);
+            QVERIFY(username->width() > 250);
+            QCOMPARE(username->height(), 56.0);
+            QCOMPARE(password->height(), username->height());
+            QCOMPARE(submit->height(), username->height());
+            QCOMPARE(submit->width(), username->width());
+            QCOMPARE(password->y() - username->y() - username->height(), 16.0);
+            for (auto *control : {username, password, submit}) {
+                auto *surface = control->property("background").value<QQuickItem *>();
+                QVERIFY(surface);
+                QCOMPARE(surface->property("radius").toReal(), 6.0);
+            }
+            QCOMPARE(username->property("font").value<QFont>().pixelSize(), 15);
+            QCOMPARE(submit->property("font").value<QFont>().pixelSize(), 15);
+            qreal previousRight = -1;
+            const QStringList labels{QStringLiteral("酷狗"), QStringLiteral("微信"),
+                                     QStringLiteral("QQ"), QStringLiteral("验证码"),
+                                     QStringLiteral("账号")};
+            int displayed = 0;
+            for (const int method : {0, 4, 3, 1, 2}) {
+                auto *button = visible("loginMethod-" + QString::number(method));
+                auto *icon = visible("loginMethodIcon-" + QString::number(method));
+                auto *caption = visible("loginMethodCaption-" + QString::number(method));
+                QVERIFY(button && icon && caption);
+                QVERIFY(button->x() > previousRight);
+                previousRight = button->x() + button->width();
+                QCOMPARE(caption->property("text").toString(), labels.at(displayed++));
+                click(button);
+                QTRY_COMPARE(accountUi.controller.method(), method);
+                QVERIFY(button->property("selected").toBool());
+                const auto top = icon->mapToItem(button, {0, 0}).y();
+                const auto textTop = caption->mapToItem(button, {0, 0}).y();
+                QCOMPARE(textTop - top - icon->height(), 4.0);
+                QCOMPARE(top, button->height() - textTop - caption->height());
+            }
+            username->setProperty("text", QStringLiteral("test draft"));
+            password->setProperty("text", QStringLiteral("test draft password"));
+            QPointer<QQuickItem> draft = password;
+            username->forceActiveFocus();
+            QTest::keyClick(window, Qt::Key_Escape);
+            QTRY_VERIFY(!accountUi.controller.loginOpen());
+            QTRY_VERIFY(draft.isNull());
+            accountUi.controller.openLogin();
+            accountUi.controller.setMethod(2);
+            QTRY_VERIFY(visible("loginPassword"));
+            QVERIFY(visible("loginPassword")->property("text").toString().isEmpty());
+            accountUi.controller.setMethod(3);
+            QCOMPARE(accountUi.controller.method(), 3);
+            QTRY_COMPARE(visible("loginQrTitle")->property("text").toString(),
+                         QStringLiteral("QQ 登录"));
+            accountUi.controller.setMethod(4);
+            QTRY_COMPARE(visible("loginQrTitle")->property("text").toString(),
+                         QStringLiteral("微信登录"));
+            accountUi.controller.setMethod(1);
+            QTRY_VERIFY(visible("loginMobile") && visible("loginSmsCode") &&
+                        visible("loginSendSms"));
+            QCOMPARE(visible("loginMobile")->height(), 56.0);
+            QCOMPARE(visible("loginSmsSubmit")->height(), 56.0);
+            QJsonArray candidates;
+            for (int row = 1; row <= 1000; ++row)
+                candidates.append(
+                    QJsonObject{{"user_id", row},
+                                {"nickname", QStringLiteral("unit-account-%1").arg(row)},
+                                {"avatar_url", ""},
+                                {"username", ""}});
+            QVERIFY(accountUi.controller.smsCandidates()->replace(candidates));
+            QQuickItem *candidateList = nullptr;
+            QTRY_VERIFY((candidateList = visible("smsCandidateList")));
+            QCOMPARE(candidateList->property("count").toInt(), 1000);
+            const auto *content = candidateList->property("contentItem").value<QQuickItem *>();
+            QVERIFY(content);
+            QTRY_VERIFY(content->childItems().size() > 0);
+            QVERIFY(content->childItems().size() < 24);
+            auto *back = visible("smsCandidatesBack");
+            auto *firstCandidate = visible("smsCandidateRow-0");
+            QVERIFY(back && firstCandidate);
+            QTRY_COMPARE(back->mapToItem(candidateList, {back->width(), 0}).x(),
+                         firstCandidate->width());
+            candidateList->setProperty("contentY", 720 * 40);
+            QTest::qWait(120);
+            QVERIFY(content->childItems().size() < 24);
+            accountUi.controller.resetSmsCandidates();
+            accountUi.controller.setMethod(2);
+            const auto artifacts = qEnvironmentVariable("ECHO_ACCOUNT_ARTIFACTS");
+            if (!artifacts.isEmpty()) {
+                QDir().mkpath(artifacts);
+                QTest::qWait(30);
+                QVERIFY(window->grabWindow().save(artifacts + (mode == ThemeStore::Dark
+                                                                   ? "/login-dark.png"
+                                                                   : "/login-light.png")));
+            }
+            accountUi.controller.setMethod(0);
+            QrLoginServiceTestAccess::present(accountUi.qr, QrLoginService::State::Waiting);
+            QQuickItem *qrPanel = nullptr;
+            QTRY_VERIFY((qrPanel = visible("loginQrPanel")));
+            auto *qrSurface = visible("loginQrSurface"), *subtitle = visible("loginQrSubtitle");
+            auto *statusRow = visible("loginQrStatusRow"), *status = visible("loginQrStatus"),
+                 *refresh = visible("loginQrRefresh");
+            auto *footer = visible("loginMethodsFooter"),
+                 *footerTitle = visible("loginMethodsTitle"), *card = visible("loginCard");
+            QVERIFY(qrSurface && subtitle && statusRow && status && refresh && footer &&
+                    footerTitle && card);
+            QCOMPARE(qrSurface->size(), QSizeF(204, 204));
+            // Showing the previously hidden QR panel schedules Column polish;
+            // wait for its geometry instead of reading before the layout pass.
+            QTRY_COMPARE(qrSurface->y() - subtitle->mapToItem(qrPanel, {0, subtitle->height()}).y(),
+                         10.0);
+            QCOMPARE(statusRow->y() - qrSurface->y() - qrSurface->height(), 24.0);
+            // The right-hand refresh action must not displace the status label.
+            QCOMPARE(status->x() + status->width() / 2, statusRow->width() / 2);
+            QCOMPARE(refresh->x() + refresh->width(), statusRow->width());
+            // QML snaps anchor centers to pixels. A 16.5px line height
+            // can place its center a quarter pixel from the unsnapped value.
+            QVERIFY(qAbs(refresh->y() + refresh->height() / 2 - statusRow->height() / 2) <= 0.5);
+            QCOMPARE(refresh->size(), QSizeF(28, 28));
+            QCOMPARE(refresh->property("contentItem").value<QQuickItem *>()->size(),
+                     QSizeF(14, 14));
+            QCOMPARE(footer->mapToItem(card, {0, 0}).x(), 33.0); // 1px border + px-8.
+            QCOMPARE(footer->mapToItem(card, {0, footer->height()}).y(), card->height() - 29);
+            QCOMPARE(footerTitle->property("text").toString(), QStringLiteral("选择登录方式"));
+            const auto lastMethod = visible("loginMethod-0");
+            QVERIFY(lastMethod);
+            QCOMPARE(lastMethod->mapToItem(footer, {0, 0}).y() - footerTitle->y() -
+                         footerTitle->height(),
+                     12.0);
+            QVERIFY(qrPanel->mapToItem(card, {0, qrPanel->height() + 6}).y() <
+                    footer->mapToItem(card, {0, 0}).y());
+            QImage codeImage(204, 204, QImage::Format_RGB32);
+            codeImage.fill(Qt::white);
+            // A canonical contrast pattern reveals the underlying image through
+            // the overlay. This is not a fabricated provider/scan-success sample.
+            for (int y = 21; y < 183; ++y)
+                for (int x = 21; x < 183; ++x)
+                    if ((x / 9 + y / 9) % 2)
+                        codeImage.setPixelColor(x, y, Qt::black);
+            QByteArray png;
+            QBuffer buffer(&png);
+            QVERIFY(buffer.open(QIODevice::WriteOnly));
+            QVERIFY(codeImage.save(&buffer, "PNG"));
+            const auto imageUrl =
+                QStringLiteral("data:image/png;base64,") + QString::fromLatin1(png.toBase64());
+            for (const int method : {0, 3, 4}) {
+                accountUi.controller.setMethod(method);
+                auto *qr = method == 0   ? accountUi.controller.qr()
+                           : method == 3 ? accountUi.controller.qq()
+                                         : accountUi.controller.wechat();
+                QrLoginServiceTestAccess::present(*qr, QrLoginService::State::Waiting, imageUrl);
+                auto *title = visible("loginQrTitle");
+                subtitle = visible("loginQrSubtitle");
+                qrPanel = visible("loginQrPanel");
+                qrSurface = visible("loginQrSurface");
+                auto *image = visible("loginQrImage");
+                QVERIFY(title && subtitle && qrPanel && qrSurface && image);
+                QCOMPARE(image->size(), QSizeF(204, 204));
+                QVERIFY(!qrSurface->property("radius").isValid());
+                QVERIFY(!qrSurface->property("color").isValid());
+                QTRY_COMPARE(subtitle->mapToItem(qrPanel, QPointF{}).y() -
+                                 title->mapToItem(qrPanel, {0, title->height()}).y(),
+                             qrSurface->y() -
+                                 subtitle->mapToItem(qrPanel, {0, subtitle->height()}).y());
+                for (const auto state :
+                     {QrLoginService::State::Scanned, QrLoginService::State::Authorizing,
+                      QrLoginService::State::Expired, QrLoginService::State::Error}) {
+                    QrLoginServiceTestAccess::present(*qr, state, imageUrl);
+                    QTRY_VERIFY(visible("loginQrStateIcon"));
+                    QVERIFY(image->isVisible());
+                    auto *layer = visible("loginQrStateOverlay");
+                    auto *viewport = visible("loginQrImageViewport");
+                    auto *stateIcon = visible("loginQrStateIcon");
+                    QVERIFY(layer && viewport && stateIcon);
+                    QCOMPARE(layer->size(), image->size());
+                    QCOMPARE(layer->mapToItem(qrSurface, {0, 0}),
+                             image->mapToItem(qrSurface, {0, 0}));
+                    QCOMPARE(stateIcon->mapToItem(layer, {24, 24}), QPointF(102, 102));
+                    QVERIFY(layer->z() > viewport->z());
+                    QCOMPARE(viewport->size(),
+                             mode == ThemeStore::Dark ? QSizeF(162, 162) : QSizeF(204, 204));
+                    QVERIFY(viewport->clip());
+                    QCOMPARE(image->property("source").toUrl(), QUrl(imageUrl));
+                    QVERIFY(!visible("loginQrStateTitle"));
+                    QVERIFY(!visible("loginQrStateDescription"));
+                    QVERIFY(!visible("loginQrRetry"));
+                    auto *below = visible("loginQrStatus");
+                    QVERIFY(below);
+                    const auto text = below->property("text").toString();
+                    if (state == QrLoginService::State::Scanned) {
+                        QVERIFY(text.startsWith(QStringLiteral("已扫码")));
+                        QVERIFY(text.contains(QStringLiteral("确认登录")));
+                    } else if (state == QrLoginService::State::Authorizing)
+                        QCOMPARE(text, QStringLiteral("正在登录"));
+                    else if (state == QrLoginService::State::Expired)
+                        QCOMPARE(text, QStringLiteral("二维码已过期"));
+                    else
+                        QCOMPARE(text, qr->errorMessage());
+                    QCOMPARE(bool(visible("loginQrRefresh")),
+                             state != QrLoginService::State::Authorizing);
+                    if (!artifacts.isEmpty()) {
+                        QTest::qWait(50);
+                        QVERIFY(window->grabWindow().save(
+                            artifacts + QString("/login-qr-%1-state%2-%3.png")
+                                            .arg(method)
+                                            .arg(int(state))
+                                            .arg(mode == ThemeStore::Dark ? "dark" : "light")));
+                    }
+                }
+                QrLoginServiceTestAccess::present(*qr, QrLoginService::State::Waiting, imageUrl);
+                QTRY_COMPARE(visible("loginQrImageViewport")->size(), QSizeF(204, 204));
+                if (!artifacts.isEmpty()) {
+                    QTest::qWait(50);
+                    QVERIFY(window->grabWindow().save(
+                        artifacts + QString("/login-qr-%1-%2.png")
+                                        .arg(method)
+                                        .arg(mode == ThemeStore::Dark ? "dark" : "light")));
+                }
+            }
+            accountUi.controller.setMethod(0);
+            QrLoginServiceTestAccess::present(accountUi.qr, QrLoginService::State::Waiting,
+                                              imageUrl);
+            if (!artifacts.isEmpty()) {
+                QTest::qWait(30);
+                QVERIFY(window->grabWindow().save(artifacts + (mode == ThemeStore::Dark
+                                                                   ? "/login-qr-dark.png"
+                                                                   : "/login-qr-light.png")));
+            }
+            accountUi.controller.closeLogin();
+        }
+        if (!shell.sidebarCollapsed())
+            shell.toggleSidebar();
+        QTRY_VERIFY(shell.sidebarCollapsed());
+        QVERIFY(!visible("sidebarAccountTrigger"));
+        auto *railAvatar = visible("sidebarUserLink");
+        QVERIFY(railAvatar);
+        QTRY_COMPARE(railAvatar->width(), 42.0);
+        click(railAvatar);
+        QTRY_VERIFY(accountUi.controller.loginOpen());
+        accountUi.controller.closeLogin();
+        shell.toggleSidebar();
+        QTRY_VERIFY(!shell.sidebarCollapsed());
+        auto *trigger = visible("sidebarAccountTrigger");
+        QVERIFY(trigger);
+        click(trigger);
+        QPointer<QObject> panel = root->findChild<QObject *>("sidebarAccountPopover");
+        QVERIFY(panel);
+        QTRY_VERIFY(panel->property("opened").toBool());
+        QCOMPARE(panel->property("width").toReal(), 320.0);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(panel.isNull());
+        QCOMPARE(warnings.size(), 0);
+        routes.shutdown();
+        windows.shutdown();
+    }
+    void historyTabsRefreshAndExclusions()
+    {
+        RouteController routes;
+        QAbstractItemModelTester model(&routes,
+                                       QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QVERIFY(routes.registerPage(definition("playlist")));
+        QVERIFY(routes.registerPage(definition("search", false)));
+        QVERIFY(routes.registerPage(definition("themes", false)));
+        QVERIFY(!routes.navigate("home"));
+        QVERIFY(routes.navigate("playlist", {{"tab", QString("songs")}}, "one"));
+        QPointer<RouteContext> original = routes.current();
+        routes.replaceQuery({{"tab", QString("comments")}});
+        QCOMPARE(routes.current(), original.data());
+        QVERIFY(!routes.canGoBack());
+        QVERIFY(routes.navigate("playlist", {}, "two"));
+        QVERIFY(!original->active());
+        routes.back();
+        QCOMPARE(routes.current(), original.data());
+        QVERIFY(routes.canGoForward());
+        QSignalSpy settings(&routes, &RouteController::settingsRequested);
+        routes.navigate("settings");
+        QCOMPARE(settings.size(), 1);
+        QCOMPARE(routes.current(), original.data());
+        routes.refresh();
+        const auto refreshedKey = routes.current()->key();
+        QVERIFY(refreshedKey != original->key());
+        drain();
+        QVERIFY(original.isNull());
+        routes.forward();
+        routes.back();
+        QCOMPARE(routes.current()->key(), refreshedKey);
+        routes.navigate("search", {}, "public");
+        QPointer<RouteContext> search = routes.current();
+        routes.navigate("themes", {}, "theme");
+        drain();
+        QVERIFY(search.isNull());
+        routes.setCachePolicy(false, 20);
+        QCOMPARE(routes.mountedCount(), 1);
+        routes.shutdown();
+        drain();
+        QCOMPARE(routes.mountedCount(), 0);
+        QVERIFY(!routes.navigate("playlist", {}, "three"));
+    }
+    void actualLoaderRetainsVisualStateAndStopsInactiveTimers()
+    {
+        QTemporaryDir temp;
+        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        ShellSettings shell(preferences);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi{api};
+        SearchModel search(api);
+        RouteController routes;
+        routes.registerPage(definition("playlist"));
+        routes.setCachePolicy(true, 2);
+        QQmlEngine engine;
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ShellHarness.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"router", QVariant::fromValue(&routes)}, {"settings", QVariant::fromValue(&shell)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        routes.navigate("playlist", {}, "one");
+        QPointer<RouteContext> first = routes.current();
+        QTRY_VERIFY(probe(root.data(), first));
+        QPointer<QObject> firstItem = probe(root.data(), first);
+        firstItem->setProperty("visualScroll", 413);
+        QTRY_VERIFY(firstItem->property("ticks").toInt() > 0);
+        routes.navigate("playlist", {}, "two");
+        const auto stopped = firstItem->property("ticks").toInt();
+        QTest::qWait(30);
+        QCOMPARE(firstItem->property("ticks").toInt(), stopped);
+        routes.back();
+        QCOMPARE(routes.current(), first.data());
+        QCOMPARE(probe(root.data(), first), firstItem.data());
+        QCOMPARE(firstItem->property("visualScroll").toInt(), 413);
+        QTRY_VERIFY(firstItem->property("ticks").toInt() > stopped);
+        routes.navigate("playlist", {}, "two");
+        routes.navigate("playlist", {}, "three");
+        QTRY_VERIFY(first.isNull());
+        QTRY_VERIFY(firstItem.isNull());
+        QCOMPARE(routes.mountedCount(), 2);
+        routes.shutdown();
+        drain();
+        api.shutdown();
+    }
+    void accountAndReentrantRefresh()
+    {
+        RouteController routes;
+        routes.registerPage(definition("playlist"));
+        QVERIFY(routes.registerPage(
+            {"home", "/main/home", QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        routes.registerPage({"search",
+                             "/main/search",
+                             QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml"),
+                             {"tab"},
+                             false,
+                             false});
+        bool queued = false;
+        connect(&routes, &RouteController::pageActivated, &routes, [&](RouteContext *) {
+            if (!queued) {
+                queued = true;
+                routes.refresh();
+            }
+        });
+        routes.navigate("playlist", {}, "one");
+        const auto before = routes.current()->instanceId();
+        QTRY_VERIFY(routes.current()->instanceId() != before);
+        QPointer<RouteContext> accountPage = routes.current();
+        routes.invalidateAccount();
+        QCOMPARE(routes.current()->name(), QString("home"));
+        QVERIFY(!routes.canGoBack());
+        drain();
+        QVERIFY(accountPage.isNull());
+    }
+    void startupAccountRestorationRetainsLatestLocationWithFreshPages()
+    {
+        RouteController routes;
+        QVERIFY(routes.registerPage(
+            {"home", "/main/home", QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        QVERIFY(routes.registerPage(definition("landing")));
+        QVERIFY(routes.registerPage(definition("next")));
+        QVERIFY(routes.registerPage({"search",
+                                     "/main/search",
+                                     QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml"),
+                                     {},
+                                     false,
+                                     false}));
+        bool queued = false;
+        connect(&routes, &RouteController::pageActivated, &routes, [&](RouteContext *page) {
+            if (!queued && page->name() == "landing") {
+                queued = true;
+                routes.invalidateAccountPreservingRoute();
+            }
+        });
+        QVERIFY(routes.navigate("landing", {}, "start"));
+        QVERIFY(
+            routes.navigate("next", {{"tab", "songs"}}, "chosen")); // Advances during hydration.
+        const auto guestPage = routes.current()->instanceId();
+        QTRY_VERIFY(routes.current()->instanceId() != guestPage);
+        QCOMPARE(routes.current()->name(), QString("next"));
+        QCOMPARE(routes.current()->resourceId(), QString("chosen"));
+        QCOMPARE(routes.current()->query().value("tab").toString(), QString("songs"));
+        QVERIFY(!routes.canGoBack());
+        QCOMPARE(routes.mountedCount(), 1);
+        // Explicit account switching returns home instead of mounting empty search.
+        routes.invalidateAccount();
+        QCOMPARE(routes.current()->name(), QString("home"));
+        QVERIFY(!routes.canGoBack());
+    }
+    void loginAndAccountChangesReturnHomeAndEmptySearchRedirects()
+    {
+        ApiClient api(DeviceIdentity::temporary());
+        SearchModel search(api);
+        RouteController routes;
+        QVERIFY(routes.registerPage(
+            {"home", "/main/home", QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        QVERIFY(routes.registerPage(definition("playlist")));
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        for (const auto name : {QString("home"), QString("playlist"), QString("search")}) {
+            QVERIFY(routes.navigate(name,
+                                    name == "search" ? QVariantMap{{"q", "歌曲"}} : QVariantMap{},
+                                    name == "playlist" ? "one" : ""));
+            QPointer<RouteContext> previous = routes.current();
+            routes.invalidateAccount();
+            QCOMPARE(routes.current()->name(), QString("home"));
+            QVERIFY(!routes.canGoBack());
+            QVERIFY(!routes.canGoForward());
+            QCOMPARE(routes.mountedCount(), 1);
+            drain();
+            QVERIFY(previous.isNull());
+        }
+        for (const auto keyword : {QString{}, QString("  ")}) {
+            QVERIFY(routes.navigate("search", {{"q", keyword}}));
+            QTRY_COMPARE(routes.current()->name(), QString("home"));
+            // Replace the empty route so Back cannot restore a blank page.
+            routes.back();
+            QCOMPARE(routes.current()->name(), QString("home"));
+        }
+        QVERIFY(routes.navigate("search", {{"q", "歌曲"}, {"tab", "lyric"}}));
+        QCOMPARE(routes.current()->name(), QString("search"));
+        QCOMPARE(routes.current()->query().value("q").toString(), QString("歌曲"));
+        routes.invalidateAccountPreservingRoute();
+        QCOMPARE(routes.current()->name(), QString("search"));
+        QCOMPARE(routes.current()->query().value("tab").toString(), QString("lyric"));
+        // Removing the only plugin page must use the same nonempty fallback.
+        RouteController pluginRoutes;
+        QVERIFY(pluginRoutes.registerPage(
+            {"home", "/main/home", QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        const auto revision = pluginRoutes.registerPluginPage(
+            {"plugin-page", "/plugin-page",
+             QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")});
+        QVERIFY(revision);
+        QVERIFY(pluginRoutes.navigate("plugin-page"));
+        QVERIFY(pluginRoutes.unregisterPage("plugin-page", revision));
+        QCOMPARE(pluginRoutes.current()->name(), QString("home"));
+        QVERIFY(!pluginRoutes.canGoBack());
+        pluginRoutes.shutdown();
+        routes.shutdown();
+        search.shutdown();
+        api.shutdown();
+    }
+    void dynamicHomepageFollowsCurrentFirstShortcut()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        preferences.setValue("sidebar/shortcuts",
+                             QStringList{"recommend", "explore", "home", "ranking"});
+        ShellSettings settings(preferences);
+        auto *layout = settings.sidebarLayout();
+        ApiClient api(DeviceIdentity::temporary());
+        SearchModel search(api);
+        RouteController routes;
+        routes.setHomeLayout(layout);
+        for (const auto name :
+             {QString("home"), QString("explore"), QString("recommend-songs"), QString("ranking")})
+            QVERIFY(routes.registerPage(
+                {name, "/main/" + name, QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        QVERIFY(routes.registerPage(definition("playlist")));
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        // Restored preference keys and route names differ for daily recommendations.
+        QCOMPARE(routes.homeRoute(), QString("recommend-songs"));
+        QVERIFY(routes.navigateHome());
+        QCOMPARE(routes.current()->name(), QString("recommend-songs"));
+        QVERIFY(routes.navigate("playlist", {}, "one"));
+        layout->moveShortcutBefore("explore", "recommend");
+        QCOMPARE(routes.current()->name(), QString("playlist")); // Reordering is not navigation.
+        routes.invalidateAccount();
+        QCOMPARE(routes.current()->name(), QString("explore"));
+        QVERIFY(!routes.canGoBack());
+        // Empty search queues its redirect; read the first card when it runs,
+        // rather than capturing the route before a newer reorder is committed.
+        QVERIFY(routes.navigate("search"));
+        layout->moveShortcutBefore("ranking", "explore");
+        QTRY_COMPARE(routes.current()->name(), QString("ranking"));
+        routes.back();
+        QCOMPARE(routes.current()->name(), QString("explore"));
+        layout->toggleShortcut("ranking");
+        routes.invalidateAccount();
+        QCOMPARE(routes.current()->name(), QString("explore"));
+        layout->moveShortcutBefore("recommend", "explore");
+        QVERIFY(routes.navigate("search", {{"q", "歌曲"}, {"tab", "lyric"}}));
+        routes.invalidateAccountPreservingRoute();
+        QCOMPARE(routes.current()->name(), QString("search"));
+        QCOMPARE(routes.current()->query().value("q").toString(), QString("歌曲"));
+        QCOMPARE(routes.current()->query().value("tab").toString(), QString("lyric"));
+        routes.invalidateAccount();
+        QCOMPARE(routes.current()->name(), QString("recommend-songs"));
+        // No stale startup copy: a fresh settings reader restores the saved order.
+        preferences.sync();
+        QSettings restoredPreferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        ShellSettings restored(restoredPreferences);
+        QCOMPARE(restored.sidebarLayout()->homeRoute(), QString("recommend-songs"));
+        RouteController pluginRoutes;
+        pluginRoutes.setHomeLayout(layout);
+        for (const auto name : {QString("home"), QString("explore"), QString("recommend-songs")})
+            QVERIFY(pluginRoutes.registerPage(
+                {name, "/main/" + name, QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")}));
+        const auto revision = pluginRoutes.registerPluginPage(
+            {"plugin-page", "/plugin-page",
+             QUrl("qrc:/qt/qml/EchoMusic/ShellTests/ProbePage.qml")});
+        QVERIFY(revision);
+        QVERIFY(pluginRoutes.navigate("plugin-page"));
+        layout->moveShortcutBefore("explore", "recommend");
+        QVERIFY(pluginRoutes.unregisterPage("plugin-page", revision));
+        QCOMPARE(pluginRoutes.current()->name(), QString("explore"));
+        QVERIFY(!pluginRoutes.canGoBack());
+        pluginRoutes.shutdown();
+        routes.shutdown();
+        search.shutdown();
+        api.shutdown();
+    }
+    void preferencesResponsiveZoomAndPalette()
+    {
+        QTemporaryDir temp;
+        QSettings settings(temp.filePath("preferences.ini"), QSettings::IniFormat);
+        ShellSettings shell(settings);
+        QCOMPARE(shell.keepAliveMax(), 20);
+        QVERIFY(!shell.searchDefaultEnabled());
+        shell.setSearchDefaultEnabled(true);
+        ShellSettings searchEnabledAgain(settings);
+        QVERIFY(searchEnabledAgain.searchDefaultEnabled());
+        QVERIFY(!shell.sidebarCollapsed());
+        shell.updateViewport(699);
+        QVERIFY(shell.sidebarCollapsed());
+        shell.toggleSidebar();
+        QVERIFY(!shell.sidebarCollapsed());
+        shell.updateViewport(900);
+        shell.updateViewport(699);
+        QVERIFY(shell.sidebarCollapsed());
+        shell.resetZoom();
+        shell.zoomIn();
+        QCOMPARE(shell.uiScale(), 1.05);
+        shell.zoomOut();
+        QCOMPARE(shell.uiScale(), 1.0);
+        shell.setKeepAliveMax(1000);
+        QCOMPARE(shell.keepAliveMax(), 30);
+        shell.setKeepAliveEnabled(false);
+        shell.setSearchDefaultEnabled(false);
+        ThemeStore theme(settings);
+        theme.setMode(ThemeStore::Dark);
+        QCOMPARE(theme.main(), QColor("#29292b"));
+        theme.adoptSystemScheme(Qt::ColorScheme::Light);
+        QVERIFY(theme.dark()); // pinned mode wins
+        theme.setMode(ThemeStore::Light);
+        QCOMPARE(theme.card(), QColor("#f7f7f7"));
+        theme.setMode(ThemeStore::System);
+        theme.adoptSystemScheme(Qt::ColorScheme::Dark);
+        QVERIFY(theme.dark());
+        QCOMPARE(theme.mode(), ThemeStore::System);
+        theme.selectSolid(QColor("#7da3ce"));
+        QVERIFY(ThemeStore::contrast(theme.text(), theme.main()) >= 7);
+        QVERIFY(ThemeStore::contrast(theme.secondaryText(), theme.card()) >= 4.5);
+        const auto seed = theme.seedColor();
+        theme.selectSolid(QColor("transparent"));
+        QCOMPARE(theme.seedColor(), seed);
+        theme.setAccent(QColor("#f59e0b"));
+        QVERIFY(ThemeStore::contrast(theme.accentText(), theme.panelBackdrop()) >= 4.5);
+        QVERIFY(ThemeStore::contrast(theme.floatingAccentText(), theme.elevated()) >= 4.5);
+        QVERIFY(ThemeStore::contrast(theme.floatingAccentText(), theme.floatingCard()) >= 4.5);
+        QCOMPARE(theme.panelOpacity(), 50);
+        QVERIFY(qAbs(theme.panelColor().alphaF() - 0.5) < 0.01);
+        theme.setPanelOpacity(-10);
+        QCOMPARE(theme.panelOpacity(), 0);
+        QCOMPARE(theme.panelBackdrop(), theme.shell());
+        theme.setPanelOpacity(140);
+        QCOMPARE(theme.panelOpacity(), 100);
+        QCOMPARE(theme.panelBackdrop(), theme.main());
+        theme.setPanelOpacity(37);
+        settings.sync();
+        QSettings reopened(temp.filePath("preferences.ini"), QSettings::IniFormat);
+        ShellSettings shellAgain(reopened);
+        ThemeStore themeAgain(reopened);
+        QCOMPARE(shellAgain.keepAliveMax(), 30);
+        QVERIFY(!shellAgain.keepAliveEnabled());
+        QVERIFY(!shellAgain.searchDefaultEnabled());
+        QCOMPARE(themeAgain.seedColor(), seed);
+        QCOMPARE(themeAgain.mode(), ThemeStore::System);
+        QCOMPARE(themeAgain.panelOpacity(), 37);
+    }
+    void realMainShellGeometryAndThemeRoute()
+    {
+        QTemporaryDir temp;
+        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi{api};
+        SearchModel search(api);
+        RouteController routes;
+        // Exercise production registration/activation across the new module
+        // boundary while keeping the formal Main.qml integration test offline.
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        routes.registerPage({"themes",
+                             "/main/themes",
+                             QUrl("qrc:/qt/qml/EchoMusic/Themes/ThemeCenterPage.qml"),
+                             {},
+                             false,
+                             false});
+        routes.navigate("search");
+        ShellController shellController(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&shellController)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto *frame = findVisual(window->contentItem(), "shellFrame");
+        QVERIFY(frame);
+        auto *mainSurface = findVisual(frame, "mainPanelSurface");
+        auto *playerSurface = findVisual(frame, "playerPanelSurface");
+        QVERIFY(mainSurface && playerSurface);
+        theme.setPanelOpacity(37);
+        QQuickItem *mainMaterial = nullptr, *playerMaterial = nullptr;
+        QTRY_VERIFY((mainMaterial = findVisual(frame, "themeMainPanelMaterial")));
+        QTRY_VERIFY((playerMaterial = findVisual(frame, "themePlayerPanelMaterial")));
+        QTRY_COMPARE(mainMaterial->property("color").value<QColor>(), theme.panelColor());
+        QTRY_COMPARE(playerMaterial->property("color").value<QColor>(), theme.panelColor());
+        QVERIFY(qAbs(mainMaterial->property("color").value<QColor>().alphaF() - 0.37) < 0.01);
+        QCOMPARE(mainSurface->property("color").value<QColor>(), QColor(Qt::transparent));
+        QCOMPARE(playerSurface->property("color").value<QColor>(), QColor(Qt::transparent));
+        QVERIFY(qAbs(mainSurface->opacity() - 1) < 0.01); // Surface alpha never fades content.
+        QVERIFY(qAbs(playerSurface->opacity() - 1) < 0.01);
+        QTRY_COMPARE(frame->width(), qreal(window->width()));
+        routes.navigate("themes");
+        QQuickItem *page = nullptr;
+        QTRY_VERIFY((page = findVisual(window->contentItem(), "themeCenterPage")));
+        auto *heading = findVisual(page, "themeHeading"),
+             *action = findVisual(page, "appearanceAction");
+        QVERIFY(heading && action);
+        QTRY_VERIFY(qAbs(action->x() + action->width() - heading->width()) < 2);
+        QTRY_COMPARE(page->width(), frame->width() - 238);
+        shell.zoomIn();
+        QTRY_VERIFY(qAbs(frame->width() * shell.uiScale() - window->width()) < 0.01);
+        QTRY_COMPARE(mainMaterial->mapToScene(QPointF()), mainSurface->mapToScene(QPointF()));
+        QTRY_COMPARE(playerMaterial->mapToScene(QPointF()), playerSurface->mapToScene(QPointF()));
+        QTRY_COMPARE(mainMaterial->size(), mainSurface->size());
+        QTRY_COMPARE(playerMaterial->size(), playerSurface->size());
+        theme.setMode(ThemeStore::Dark);
+        auto *background = findVisual(frame, "themeWindowBackground");
+        auto *base = findVisual(frame, "themeBaseSurface");
+        QVERIFY(background && base);
+        QCOMPARE(window->color(), QColor(Qt::transparent));
+        QTRY_COMPARE(base->property("color").value<QColor>(), QColor("#171718"));
+        theme.setMode(ThemeStore::Light);
+        QTRY_COMPARE(base->property("color").value<QColor>(), QColor("#f6f6f6"));
+        theme.setTransparency(80);
+        QTRY_COMPARE(background->opacity(), 0.2);
+        QCOMPARE(mainSurface->opacity(), 1.0);
+        QCOMPARE(playerSurface->opacity(), 1.0);
+        theme.setTransparency(0);
+        // The native macOS application menu uses the window service signal;
+        // exercise that production connection, including lazy dialog creation.
+        emit windows.settingsRequested(QString{});
+        QPointer<QObject> settingsDialog = root->findChild<QObject *>("settingsDialog");
+        QVERIFY(settingsDialog);
+        QTRY_VERIFY(settingsDialog->property("opened").toBool());
+        QObject *mode = nullptr;
+        QTRY_VERIFY((mode = root->findChild<QObject *>("appearanceMode")));
+        auto *modeItem = qobject_cast<QQuickItem *>(mode);
+        QVERIFY(modeItem);
+        QTRY_COMPARE(modeItem->implicitHeight(), 36.0);
+        auto *zoomIn = root->findChild<QQuickItem *>("settingsZoomIn");
+        auto *zoomOut = root->findChild<QQuickItem *>("settingsZoomOut");
+        QVERIFY(zoomIn && zoomOut && zoomIn->isVisible() && zoomOut->isVisible());
+        QCOMPARE(zoomIn->implicitHeight(), 36.0);
+        QTRY_VERIFY(modeItem->mapToScene(QPointF(modeItem->width(), modeItem->height())).x() <=
+                    window->width());
+        if (QGuiApplication::platformName() != QStringLiteral("offscreen")) {
+            // Popup.opened precedes layout polish; use rendered coordinates for input.
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+        }
+        const auto clickPoint =
+            modeItem->mapToScene(QPointF(modeItem->width() / 2, modeItem->height() / 2)).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, clickPoint);
+        QPointer<QObject> popup = mode->property("popup").value<QObject *>();
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QVERIFY(settingsDialog->property("opened").toBool());
+        QTest::keyClick(window, Qt::Key_End);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY(theme.dark());
+        QCOMPARE(routes.current()->name(), QString("themes"));
+        QVERIFY(QMetaObject::invokeMethod(settingsDialog, "close"));
+        routes.refresh();
+        routes.back();
+        routes.forward();
+        QTRY_VERIFY(findVisual(window->contentItem(), "themeCenterPage"));
+        QCOMPARE(warnings.size(), 0);
+        routes.shutdown();
+        windows.shutdown();
+        search.shutdown();
+        api.shutdown();
+        window->close();
+    }
+    void productionTitlebarPinningTasksAndVirtualization()
+    {
+        QTemporaryDir temp;
+        QSettings preferences(temp.filePath("settings.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        shell.setMotionEnabled(false);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi{api};
+        SearchModel search(api);
+        RouteController routes;
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        ShellController controller(preferences, routes);
+        routes.navigate("search");
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&controller)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"router", QVariant::fromValue(&routes)},
+             {"windowService", QVariant::fromValue(&windows)},
+             {"searchService", QVariant::fromValue(&search)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1150, 750);
+        QVERIFY(Test::prepareNativeInput(window));
+        auto item = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        auto click = [&](QQuickItem *target) {
+            QVERIFY(Test::prepareNativeInput(window));
+            // Popup.opened/property changes precede layout polish. Derive input
+            // coordinates only after the production window renders that state.
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            QTest::mouseClick(
+                window, Qt::LeftButton, Qt::NoModifier,
+                target->mapToScene({target->width() / 2, target->height() / 2}).toPoint());
+        };
+        const auto capture = [&](const QString &name) {
+            const auto directory = qEnvironmentVariable("ECHO_SHELL_CAPTURE_DIR");
+            if (directory.isEmpty())
+                return;
+            QVERIFY(Test::prepareNativeInput(window));
+            QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+            window->update();
+            QTRY_VERIFY(!frames.isEmpty());
+            QVERIFY(QDir().mkpath(directory));
+            const auto image = window->grabWindow();
+            QVERIFY(!image.isNull());
+            QVERIFY(image.save(directory + "/" + name + ".png"));
+        };
+        auto *playerBar = item("playerbar");
+        auto *playerCenter = item("playerbarCenterArea");
+        auto *progressRow = item("playerbarProgressRow");
+        QVERIFY(playerBar && playerCenter && progressRow);
+        // Check the production geometry, including the unequal implicit size
+        // policies of a nested RowLayout and a plain Item on the two sides.
+        for (const int width : {900, 1150, 1600}) {
+            window->resize(width, 750);
+            QTRY_VERIFY(
+                qAbs(playerCenter->mapToItem(playerBar, {playerCenter->width() / 2, 0}).x() -
+                     playerBar->width() / 2) < 0.6);
+            QTRY_VERIFY(progressRow->width() >= qMin(playerCenter->width(), 480.0) - 8.5);
+            QTRY_VERIFY(qAbs(progressRow->mapToItem(playerBar, {progressRow->width() / 2, 0}).x() -
+                             playerBar->width() / 2) < 0.6);
+        }
+        window->resize(1150, 750);
+        QQuickItem *playButton = nullptr, *playGlyph = nullptr;
+        QTRY_VERIFY((playButton = item("playerbar-action-play-toggle")));
+        QTRY_VERIFY((playGlyph = findVisual(playButton, "iconImage")));
+        QTRY_COMPARE(playGlyph->property("status").toInt(), 1); // Asynchronous image is Ready.
+        capture("playerbar-centered");
+        auto *more = item("titlebarMoreAction");
+        QVERIFY(more);
+        auto *toolbar = findVisual(window->contentItem(), "titlebarToolbar");
+        QVERIFY(toolbar);
+        QTRY_COMPARE(toolbar->property("count").toInt(), 2);
+        QQuickItem *taskIcon = nullptr;
+        QTRY_VERIFY((taskIcon = item("shellDragPointer-host/tasks")));
+        Test::moveNativePointer(
+            window,
+            taskIcon->mapToScene({taskIcon->width() / 2, taskIcon->height() / 2}).toPoint());
+        QTRY_COMPARE(taskIcon->property("cursorShape").toInt(), int(Qt::ArrowCursor));
+        QTRY_COMPARE(window->cursor().shape(), Qt::ArrowCursor);
+        auto *taskButton = item("titlebar-action-tasks");
+        QVERIFY(taskButton);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            QTRY_VERIFY(taskButton->property("hovered").toBool());
+            QTRY_COMPARE(taskButton->property("foreground").value<QColor>(), theme.text());
+            QVERIFY(taskButton->property("foreground").value<QColor>() != theme.accentText());
+        }
+        click(more);
+        QPointer<QObject> menu = root->findChild<QObject *>("titlebarMorePopup");
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QCOMPARE(menu->property("width").toReal(), 280.0);
+        auto *list = item("titlebarMoreList");
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 6);
+        auto *pin = item("titlebarPin-host/tasks");
+        QVERIFY(pin);
+        // Real popup text must align with the drag icon's center after font
+        // fallback; checking the Label rectangle alone missed this regression.
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            theme.setMode(mode);
+            for (const bool zoomed : {false, true}) {
+                shell.resetZoom();
+                if (zoomed)
+                    for (int step = 0; step < 5; ++step)
+                        shell.zoomIn();
+                QTest::qWait(100);
+                auto *label = item("titlebarMoreLabel-host/tasks");
+                auto *action = item("titlebarMenuAction-host/tasks");
+                QVERIFY(label && action);
+                auto *box = label->property("textBox").value<QQuickItem *>();
+                auto *handle =
+                    findVisual(action->parentItem()->parentItem(), "shellDragHandle-host/tasks");
+                QVERIFY(box && handle);
+                const auto image = window->grabWindow();
+                QVERIFY(!image.isNull());
+                const auto ratio = image.width() / qreal(window->width());
+                const auto rect =
+                    box->mapRectToScene(QRectF(0, -2, box->width(), box->height() + 4));
+                const auto pixels = QRectF(rect.topLeft() * ratio, rect.size() * ratio)
+                                        .toAlignedRect()
+                                        .intersected(image.rect());
+                const auto foreground = label->property("color").value<QColor>();
+                int top = image.height(), bottom = -1;
+                for (int y = pixels.top(); y <= pixels.bottom(); ++y)
+                    for (int x = pixels.left(); x <= pixels.right(); ++x) {
+                        const auto pixel = image.pixelColor(x, y);
+                        if (qAbs(pixel.red() - foreground.red()) +
+                                qAbs(pixel.green() - foreground.green()) +
+                                qAbs(pixel.blue() - foreground.blue()) <
+                            80) {
+                            top = std::min(top, y);
+                            bottom = std::max(bottom, y);
+                        }
+                    }
+                QVERIFY(bottom >= top);
+                const auto center = handle->mapToScene(QPointF(0, handle->height() / 2)).y();
+                QVERIFY(qAbs((top + bottom + 1) / (2 * ratio) - center) <= shell.uiScale());
+                capture(QString("titlebar-more-aligned-%1-%2").arg(int(mode)).arg(shell.uiScale()));
+                QPointer<QQuickItem> keptPin(pin), keptAction(action);
+                const auto height = menu->property("height").toReal();
+                for (int i = 0; i < 10; ++i) {
+                    const auto glyph = pin->property("glyph").toString();
+                    click(pin);
+                    QVERIFY(keptPin && keptAction);
+                    QCOMPARE(item("titlebarPin-host/tasks"), keptPin.data());
+                    QCOMPARE(pin->property("glyph").toString(),
+                             glyph == "pin" ? QString("pinned") : QString("pin"));
+                    QVERIFY(menu && menu->property("opened").toBool());
+                    QCOMPARE(menu->property("height").toReal(), height);
+                }
+                action->forceActiveFocus(Qt::TabFocusReason);
+                QTest::keyClick(window, Qt::Key_Down, Qt::AltModifier);
+                QTest::qWait(20);
+                QVERIFY(keptAction && keptPin);
+                QTest::keyClick(window, Qt::Key_Up, Qt::AltModifier);
+                QTest::qWait(20);
+                QVERIFY(keptAction && keptPin);
+            }
+        }
+        shell.resetZoom();
+        capture("titlebar-more");
+        click(pin); // Unpin the command; it remains accessible in More.
+        QTRY_COMPARE(toolbar->property("count").toInt(), 1);
+        auto *taskCommand = item("titlebarMenuAction-host/tasks");
+        QVERIFY(taskCommand);
+        click(taskCommand);
+        QPointer<QObject> taskDialog = root->findChild<QObject *>("taskCenterDialog");
+        QVERIFY(taskDialog);
+        QTRY_VERIFY((taskDialog = root->findChild<QObject *>("taskCenterDialog")));
+        QTRY_VERIFY(taskDialog->property("opened").toBool());
+        auto *taskClose = item("taskCenterClose");
+        QVERIFY(taskClose);
+        QTRY_COMPARE(taskClose->size(), QSizeF(32, 32));
+        const auto taskScale = taskDialog->property("uiScale").toReal();
+        QTRY_VERIFY(qAbs(taskClose->mapToScene(QPointF(32, 0)).x() -
+                         (taskDialog->property("x").toReal() +
+                          (taskDialog->property("width").toReal() - 24) * taskScale)) < 0.5);
+        QTRY_VERIFY(menu.isNull());
+        auto *empty = item("taskCenterEmpty");
+        QVERIFY(empty);
+        QVERIFY(empty->isVisible());
+        auto *emptyTitle = findVisual(empty, "taskCenterEmptyTitle");
+        QVERIFY(emptyTitle);
+        QCOMPARE(emptyTitle->property("text").toString(), QString("暂无任务"));
+        capture("task-center-empty");
+        // Native focus may change while asynchronous popup transitions complete.
+        QVERIFY(Test::prepareNativeInput(window));
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(taskDialog.isNull());
+        click(more);
+        QTRY_VERIFY((menu = root->findChild<QObject *>("titlebarMorePopup")));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        list = item("titlebarMoreList");
+        QVERIFY(list);
+        auto *reset = item("restoreTitlebarLayout");
+        QVERIFY(reset);
+        QPointer<QQuickItem> resetPin = item("titlebarPin-host/tasks");
+        click(reset);
+        QVERIFY(resetPin);
+        QCOMPARE(item("titlebarPin-host/tasks"), resetPin.data());
+        QTRY_COMPARE(toolbar->property("count").toInt(), 2);
+        // Ancestor geometry changes update the same open popup, without a guessed offset.
+        shell.zoomIn();
+        shell.toggleSidebar();
+        QTRY_VERIFY(qAbs(menu->property("scale").toReal() - shell.uiScale()) < 0.001);
+        auto *menuContent = menu->property("contentItem").value<QQuickItem *>();
+        QVERIFY(menuContent);
+        QTRY_VERIFY2(qAbs(menuContent->mapToScene({menuContent->width(), 0}).x() +
+                          8 * shell.uiScale() - more->mapToScene({more->width(), 0}).x()) < 2,
+                     "Popup must follow the moving trigger through zoom/collapse");
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(menu.isNull());
+        shell.resetZoom();
+        shell.toggleSidebar();
+        QObject playerProvider;
+        int qualityCalls = 0;
+        const auto quality = controller.bindPlayerAction(playerProvider, ShellController::Quality,
+                                                         [&] { ++qualityCalls; });
+        QVERIFY(controller.playerbarActions()->setState(quality, true, true, false, "HD"));
+        auto *playerMore = item("playerbarMoreAction");
+        QVERIFY(playerMore);
+        click(playerMore);
+        QPointer<QObject> playerMenu = root->findChild<QObject *>("playerbarMorePopup");
+        QVERIFY(playerMenu);
+        QTRY_VERIFY(playerMenu->property("opened").toBool());
+        auto *edit = item("editPlayerbarLayout");
+        QVERIFY(edit);
+        click(edit);
+        QTRY_VERIFY(playerMenu->property("editing").toBool());
+        QTRY_COMPARE(playerMenu->property("width").toReal(), 860.0);
+        auto *rightZone = item("playerLayoutZone-3"), *moreZone = item("playerLayoutZone-4");
+        QVERIFY(rightZone && moreZone);
+        QTRY_COMPARE(rightZone->property("count").toInt(),
+                     4); // Saved placement includes an overflowing Queue.
+        QTRY_COMPARE(moreZone->property("count").toInt(), 1);
+        capture("playerbar-editor");
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const bool zoomed : {false, true}) {
+                theme.setMode(mode);
+                shell.resetZoom();
+                if (zoomed)
+                    for (int step = 0; step < 5; ++step)
+                        shell.zoomIn();
+                QTest::qWait(100);
+                QPointer<QQuickItem> keptBadge = item("playerBadgePreference-host/quality");
+                QPointer<QQuickItem> keptPlay = item("playerLayoutChip-host/play-toggle");
+                QVERIFY(keptBadge && keptPlay);
+                const auto height = playerMenu->property("height").toReal();
+                for (int i = 0; i < 10; ++i) {
+                    const auto before =
+                        keptBadge->parentItem()->parentItem()->property("badgePreferred").toBool();
+                    click(keptBadge);
+                    QVERIFY(keptBadge && keptPlay);
+                    QCOMPARE(preferences.value("shell/playerbar/badges")
+                                 .toMap()
+                                 .value("host/quality")
+                                 .toBool(),
+                             !before);
+                    QVERIFY(playerMenu && playerMenu->property("opened").toBool());
+                    QCOMPARE(playerMenu->property("height").toReal(), height);
+                }
+                keptPlay->forceActiveFocus(Qt::TabFocusReason);
+                QTest::keyClick(window, Qt::Key_Down, Qt::AltModifier);
+                QTest::qWait(20);
+                QVERIFY(keptPlay && keptBadge);
+                QTest::keyClick(window, Qt::Key_Up, Qt::AltModifier);
+                QTest::qWait(20);
+                QVERIFY(keptPlay && keptBadge);
+                auto *restore = item("restorePlayerbarLayout");
+                QVERIFY(restore);
+                click(restore);
+                QVERIFY(keptPlay && keptBadge);
+                QCOMPARE(item("playerLayoutChip-host/play-toggle"), keptPlay.data());
+            }
+        shell.resetZoom();
+        auto *qualityChip = item("playerLayoutChip-host/quality");
+        QVERIFY(qualityChip);
+        QSignalSpy editorFrames(window, &QQuickWindow::frameSwapped);
+        window->update();
+        QTRY_VERIFY(!editorFrames.isEmpty());
+        const auto dragStart = qualityChip->mapToScene({17, 17}).toPoint();
+        const auto dragEnd = moreZone->mapToScene({moreZone->width() - 30, 40}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, dragStart);
+        QTest::mouseMove(window, dragStart + QPoint(10, 0), 20);
+        QTest::mouseMove(window, dragStart + QPoint(20, 0), 20);
+        QTRY_VERIFY(item("host/quality")); // Real Drag source is active before crossing zones.
+        QTest::mouseMove(window, dragEnd, 40);
+        QCoreApplication::processEvents();
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
+        QTRY_COMPARE(moreZone->property("count").toInt(), 2);
+        QTRY_COMPARE(rightZone->property("count").toInt(), 3);
+        // The departing Right view may pool its old quality delegate. Select
+        // the actual destination's control rather than that retained QObject.
+        QQuickItem *badge = nullptr;
+        QTRY_VERIFY((badge = findVisibleVisual(moreZone, "playerBadgePreference-host/quality")));
+        auto *checkBox = badge->property("contentItem").value<QQuickItem *>();
+        QVERIFY(checkBox);
+        QTRY_COMPARE(checkBox->size(), QSizeF(14, 14));
+        // Native row insertion publishes count before its new delegate polishes.
+        QTRY_VERIFY(badge->mapToItem(moreZone, {0, 0}).y() >= 0);
+        QTRY_VERIFY(badge->mapToItem(moreZone, {0, badge->height()}).y() <= moreZone->height());
+        capture("playerbar-editor-moved");
+        click(badge);
+        QVERIFY(
+            !preferences.value("shell/playerbar/badges").toMap().value("host/quality").toBool());
+        auto *back = item("returnPlayerbarFunctions");
+        QVERIFY(back);
+        click(back);
+        QTRY_VERIFY(!playerMenu->property("editing").toBool());
+        // Returning from the editor switches the production ListView projection;
+        // editing=false can precede instantiation of its visible delegates.
+        QQuickItem *qualityMenu = nullptr;
+        QTRY_VERIFY((qualityMenu = item("playerbarMenuAction-host/quality")));
+        click(qualityMenu);
+        QCOMPARE(qualityCalls, 1);
+        QTRY_VERIFY(playerMenu.isNull());
+        QObject provider;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        for (int i = 0; i < 1000; ++i) {
+            ShellActionModel::Contribution contribution;
+            contribution.key = "plugin/perf/" + QString::number(i);
+            contribution.id = QString::number(i);
+            contribution.title = "扩展动作 " + QString::number(i);
+            contribution.icon = "music";
+            contribution.invoke = [] {};
+            controller.titlebarActions()->registerAction(provider, std::move(contribution));
+        }
+        click(more);
+        QTRY_VERIFY((menu = root->findChild<QObject *>("titlebarMorePopup")));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        list = item("titlebarMoreList");
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 1006);
+        const auto countNamed = [&](const QString &name) {
+            std::function<int(QQuickItem *)> walk = [&](QQuickItem *node) {
+                int count = node->objectName() == name;
+                for (auto *child : node->childItems())
+                    count += walk(child);
+                return count;
+            };
+            return walk(window->contentItem());
+        };
+        QTRY_VERIFY(countNamed("titlebarMoreRow") > 0);
+        QVERIFY(countNamed("titlebarMoreRow") < 30);
+        auto *virtualHandle = findVisibleVisual(list, "shellDragHandle-host/tasks");
+        QVERIFY(virtualHandle);
+        const auto virtualStart = virtualHandle->mapToScene({10, 10}).toPoint();
+        const auto savedOrder = preferences.value("shell/titlebar/order");
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, virtualStart);
+        QTest::mouseMove(window, virtualStart + QPoint(10, 0), 20);
+        QTest::mouseMove(window, virtualStart + QPoint(20, 0), 20);
+        QTRY_VERIFY(item("host/tasks"));
+        auto *editingPointer = findVisual(virtualHandle, "shellDragPointer-host/tasks");
+        QVERIFY(editingPointer);
+        QTRY_COMPARE(editingPointer->property("cursorShape").toInt(), int(Qt::ArrowCursor));
+        QTRY_COMPARE(window->cursor().shape(), Qt::ArrowCursor);
+        list->setProperty("contentY", list->property("contentHeight").toReal() - list->height());
+        QTRY_VERIFY(
+            !item("host/tasks")); // Pooling cancels the original gesture before roles change.
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, virtualStart + QPoint(20, 0));
+        QCOMPARE(preferences.value("shell/titlebar/order"), savedOrder);
+        QCoreApplication::processEvents();
+        QVERIFY(countNamed("titlebarMoreRow") < 30);
+        qInfo() << "Production titlebar menu: 1006 actions, live delegates"
+                << countNamed("titlebarMoreRow") << "registration + open + scroll ms"
+                << elapsed.elapsed();
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(menu.isNull());
+        QVERIFY(!item("titlebarMoreList"));
+        TaskCenterModel::Registration registration;
+        registration.id = "large";
+        registration.priority = 100;
+        registration.content.name = "导入任务";
+        registration.content.percent = 42;
+        int taskActionCalls = 0;
+        registration.content.actions.push_back(
+            {"result", "查看结果", TaskAction::Ghost, true, true, [&] { ++taskActionCalls; }});
+        registration.content.actions.push_back(
+            {"cancel", "取消当前任务", TaskAction::Primary, true, false, [] {}});
+        registration.content.actions.push_back(
+            {"report", "查看报告", TaskAction::Danger, true, false, [] {}});
+        for (int i = 0; i < 5000; ++i)
+            registration.content.items.push_back(
+                {QString::number(i), "条目 " + QString::number(i), "说明", {}, "等待", {}});
+        const auto handle = controller.tasks()->registerTask(provider, registration);
+        for (int i = 0; i < 999; ++i) {
+            TaskCenterModel::Registration next;
+            next.id = "task/" + QString::number(i);
+            next.content.name = "后台任务 " + QString::number(i);
+            controller.tasks()->registerTask(provider, next);
+        }
+        QVERIFY(controller.titlebarActions()->activate("host/tasks"));
+        QTRY_VERIFY((taskDialog = root->findChild<QObject *>("taskCenterDialog")));
+        QTRY_VERIFY(taskDialog->property("opened").toBool());
+        QPointer<QQuickItem> tasks = item("taskCenterList");
+        QVERIFY(tasks);
+        QQuickItem *detailsToggle = nullptr;
+        QTRY_VERIFY((detailsToggle = item("taskDetailsToggle-large")));
+        click(detailsToggle);
+        QQuickItem *details = nullptr;
+        QTRY_VERIFY((details = item("taskCenterDetails")));
+        QTRY_VERIFY(details->isVisible());
+        QTRY_VERIFY(tasks->height() > 200);
+        QCOMPARE(taskDialog->property("width").toReal(), 600.0);
+        auto *taskScrollBar = item("taskCenterScrollBar");
+        QVERIFY(taskScrollBar);
+        QTRY_COMPARE(taskScrollBar->x() + taskScrollBar->width(),
+                     taskDialog->property("width").toReal());
+        QPointer<QQuickItem> closedDetails = details;
+        QPointer<QQuickItem> closedTask = findVisual(tasks, "taskCenterEntry");
+        QVERIFY(closedTask);
+        auto *taskAction = item("taskAction-large//result");
+        QVERIFY(taskAction);
+        QVERIFY(taskAction->width() > 30 && taskAction->height() == 36);
+        auto *cancelAction = item("taskAction-large//cancel"),
+             *reportAction = item("taskAction-large//report");
+        auto *actionRow = item("taskActionRow-large");
+        QVERIFY(cancelAction && reportAction && actionRow);
+        QTRY_COMPARE(cancelAction->y(), taskAction->y());
+        QTRY_COMPARE(cancelAction->x() - taskAction->x() - taskAction->width(), 8.0);
+        QTRY_COMPARE(reportAction->y(), cancelAction->y());
+        QTRY_COMPARE(reportAction->x() - cancelAction->x() - cancelAction->width(), 8.0);
+        QTRY_COMPARE(reportAction->x() + reportAction->width(), actionRow->width());
+        auto *taskName = item("taskName-large");
+        QVERIFY(taskName);
+        QCOMPARE(taskName->property("textItem").value<QObject *>()->property("textFormat").toInt(),
+                 0); // PlainText, as in source interpolation.
+        capture("task-center");
+        // Compact windows wrap actions while keeping every button within the task row.
+        const auto normalWidth = window->width();
+        const auto normalMinimumWidth = window->minimumWidth();
+        window->setMinimumWidth(
+            320); // Exercise the source wrapped actions below the product baseline.
+        window->setWidth(320);
+        QTRY_VERIFY(taskDialog->property("width").toReal() < 500);
+        QTRY_COMPARE(reportAction->y() - cancelAction->y() - cancelAction->height(), 8.0);
+        QTRY_COMPARE(cancelAction->x() + cancelAction->width(), actionRow->width());
+        QTRY_COMPARE(reportAction->x() + reportAction->width(), actionRow->width());
+        capture("task-center-compact");
+        window->setWidth(normalWidth);
+        window->setMinimumWidth(normalMinimumWidth);
+        QTRY_COMPARE(taskDialog->property("width").toReal(), 600.0);
+        QTRY_COMPARE(reportAction->y(), cancelAction->y());
+        click(taskAction);
+        QTRY_COMPARE(taskActionCalls, 1);
+        QTRY_VERIFY(taskDialog.isNull());
+        QTRY_VERIFY(closedDetails.isNull()); // Closing really releases nested delegates.
+        QTRY_VERIFY(closedTask.isNull());
+        QVERIFY(controller.titlebarActions()->activate("host/tasks"));
+        QTRY_VERIFY((taskDialog = root->findChild<QObject *>("taskCenterDialog")));
+        QTRY_VERIFY(taskDialog->property("opened").toBool());
+        QCOMPARE(controller.tasks()->index(0, 0).data(TaskCenterModel::IdRole).toString(),
+                 QString("large"));
+        tasks = item("taskCenterList");
+        QVERIFY(tasks);
+        QQuickItem *reopenedTask = nullptr;
+        QTRY_VERIFY((reopenedTask = findVisual(tasks, "taskCenterEntry")));
+        QTRY_COMPARE(reopenedTask->property("taskId").toString(), QString("large"));
+        capture("task-center-reopened");
+        QTRY_VERIFY((detailsToggle = item("taskDetailsToggle-large")));
+        click(detailsToggle);
+        QTRY_VERIFY((details = item("taskCenterDetails")));
+        QTRY_VERIFY(details->isVisible());
+        QTRY_VERIFY(countNamed("taskCenterEntry") > 0);
+        QVERIFY(countNamed("taskCenterEntry") < 30);
+        QVERIFY(countNamed("taskCenterDetailRow") < 40);
+        const auto detailY = details->property("contentY").toReal();
+        controller.tasks()->updateProgress(handle, 83, "正在导入");
+        QCoreApplication::processEvents();
+        QCOMPARE(details->property("contentY").toReal(), detailY);
+        tasks->setProperty("contentY", tasks->property("contentHeight").toReal() - tasks->height());
+        QCoreApplication::processEvents();
+        QVERIFY(countNamed("taskCenterEntry") < 30);
+        qInfo() << "Production task dialog: 1000 tasks / 5000 details, live task/detail delegates"
+                << countNamed("taskCenterEntry") << countNamed("taskCenterDetailRow");
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(taskDialog.isNull());
+        QTRY_VERIFY(tasks.isNull());
+        QCOMPARE(warnings.size(), 0);
+        controller.shutdown();
+        routes.shutdown();
+        windows.shutdown();
+        search.shutdown();
+        api.shutdown();
+        window->close();
+    }
+    void boundedCacheAndHistoryUnderRepeatedNavigation()
+    {
+        RouteController routes;
+        routes.registerPage(definition("playlist"));
+        routes.setCachePolicy(true, 30);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        for (int i = 0; i < 1000; ++i) {
+            QVERIFY(routes.navigate("playlist", {}, QString::number(i)));
+            routes.refresh();
+            drain();
+            QVERIFY(routes.mountedCount() <= 30);
+            QVERIFY(routes.findChildren<RouteContext *>(Qt::FindDirectChildrenOnly).size() <= 30);
+        }
+        int backSteps = 0;
+        while (routes.canGoBack()) {
+            routes.back();
+            ++backSteps;
+        }
+        QCOMPARE(backSteps, 127);
+        qInfo() << "1000 navigate+refresh cycles, cache <= 30, history <= 128:" << elapsed.elapsed()
+                << "ms (controller only; not a rendering benchmark)";
+        routes.shutdown();
+        drain();
+    }
+    void sidebarVisibilityKeepsEditorStable()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("window.ini"), QSettings::IniFormat);
+        ThemeStore theme(preferences);
+        ShellSettings shell(preferences);
+        WindowController windows(preferences, false);
+        ApiClient api(DeviceIdentity::temporary());
+        Test::AccountUiFixture accountUi(api);
+        UserPlaylistModelTestAccess::pinned(accountUi.playlists);
+        SearchModel search(api);
+        RouteController routes;
+        SearchRouteCoordinator searchRoutes(search, routes, false);
+        routes.navigate("search");
+        ShellController commands(preferences, routes);
+        QQmlEngine engine;
+        theme.attachToEngine(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
+        QScopedPointer<QObject> root(component.createWithInitialProperties(
+            {{"libraryController", QVariant::fromValue(&accountUi.library)},
+             {"accountController", QVariant::fromValue(&accountUi.controller)},
+             {"shellController", QVariant::fromValue(&commands)},
+             {"searchService", QVariant::fromValue(&search)},
+             {"router", QVariant::fromValue(&routes)},
+             {"shellSettings", QVariant::fromValue(&shell)},
+             {"windowService", QVariant::fromValue(&windows)}}));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(window);
+        windows.attach(window);
+        window->resize(1250, 900);
+        QVERIFY(Test::prepareNativeInput(window));
+        const auto item = [&](const QString &name) {
+            return findVisibleVisual(window->contentItem(), name);
+        };
+        const auto click = [&](QQuickItem *target) {
+            const auto point = target->mapToScene(target->boundingRect().center()).toPoint();
+            Test::moveNativePointer(window, point);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+        };
+        const auto nativePopups = [&] {
+            QSet<QObject *> visited;
+            QList<QObject *> found;
+            const auto visit = [&](auto &&self, QObject *object) -> void {
+                if (!object || visited.contains(object))
+                    return;
+                visited.insert(object);
+                if (object->inherits("QQuickPopup"))
+                    found.append(object);
+                for (auto *child : object->children())
+                    self(self, child);
+                if (auto *visual = qobject_cast<QQuickItem *>(object))
+                    for (auto *child : visual->childItems())
+                        self(self, child);
+            };
+            visit(visit, root.data());
+            return found;
+        };
+        QSignalSpy initialFrame(window, &QQuickWindow::frameSwapped);
+        window->update();
+        QTRY_VERIFY(!initialFrame.isEmpty());
+        QCOMPARE(nativePopups().size(), 0);
+        int replaced = 0;
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const bool zoom : {false, true}) {
+                theme.setMode(mode);
+                shell.resetZoom();
+                if (zoom)
+                    for (int i = 0; i < 5; ++i)
+                        shell.zoomIn();
+                QTest::qWait(100);
+                auto *trigger = item("sidebarLayoutTrigger");
+                QVERIFY(trigger);
+                click(trigger);
+                QTRY_COMPARE(nativePopups().size(), 1);
+                QPointer<QObject> popup = nativePopups().first();
+                QTRY_VERIFY(popup && popup->property("opened").toBool());
+                const auto rect = [&] {
+                    return QRectF(popup->property("x").toReal(), popup->property("y").toReal(),
+                                  popup->property("width").toReal(),
+                                  popup->property("height").toReal());
+                };
+                const auto start = rect();
+                qreal minHeight = start.height(), maxHeight = start.height();
+                int extraPopups = 0, samples = 0;
+                const auto watch = connect(window, &QQuickWindow::afterAnimating, this, [&] {
+                    if (!popup || !popup->property("opened").toBool())
+                        return;
+                    ++samples;
+                    minHeight = qMin(minHeight, rect().height());
+                    maxHeight = qMax(maxHeight, rect().height());
+                    if (nativePopups().size() != 1)
+                        ++extraPopups;
+                });
+                for (const auto *name :
+                     {"sidebarVisibility-favorites", "sidebarVisibility-cloud",
+                      "sidebarVisibility-playlist:created:default",
+                      "sidebarVisibility-playlist:created:liked",
+                      "sidebarSectionVisibility-library", "sidebarSectionVisibility-playlists"}) {
+                    for (int i = 0; i < 20; ++i) {
+                        QPointer<QQuickItem> button = item(QString::fromLatin1(name));
+                        QVERIFY(button);
+                        const auto before = button->property("glyph").toString();
+                        click(button);
+                        QTest::qWait(i % 2 ? 8 : 20);
+                        replaced += button.isNull();
+                        QVERIFY(popup && popup->property("opened").toBool());
+                        QVERIFY(item(QString::fromLatin1(name)));
+                        QCOMPARE(item(QString::fromLatin1(name))->property("glyph").toString(),
+                                 before == "eye" ? QString("eye-off") : QString("eye"));
+                    }
+                }
+                // A held pointer must not start a delayed hint after the burst.
+                QTest::qWait(600);
+                disconnect(watch);
+                qInfo() << "sidebar_visibility" << mode << shell.uiScale() << "frames" << samples
+                        << "height-range" << minHeight << maxHeight << "extra-popups" << extraPopups
+                        << "replaced-buttons" << replaced;
+                QCOMPARE(extraPopups, 0);
+                QCOMPARE(maxHeight, minHeight);
+                QCOMPARE(rect(), start);
+                QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+                QTRY_VERIFY(!popup);
+                QTRY_COMPARE(nativePopups().size(), 0);
+            }
+        QCOMPARE(replaced, 0);
+        QCOMPARE(warnings.size(), 0);
+        routes.shutdown();
+        windows.shutdown();
+        search.shutdown();
+        api.shutdown();
+        window->close();
+    }
+    void contentFullscreenPreservesHostStateAndHiddenExit()
+    {
+        QTemporaryDir directory;
+        QSettings preferences(directory.filePath("window.ini"), QSettings::IniFormat);
+        WindowController windows(preferences, false);
+        QQuickWindow window;
+        windows.attach(&window);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QSignalSpy exitRequested(&windows, &WindowController::contentFullscreenExitRequested);
+        connect(&windows, &WindowController::contentFullscreenExitRequested, this,
+                [&windows](QObject *owner) { windows.endContentFullscreen(owner); });
+        for (bool maximized : {false, true}) {
+            if (maximized)
+                window.showMaximized();
+            else
+                window.showNormal();
+            QTRY_COMPARE(windows.maximized(), maximized);
+            QObject owner;
+            windows.beginContentFullscreen(&owner);
+            QTRY_VERIFY(windows.fullscreen());
+            const auto before = exitRequested.size();
+            windows.toggleFullscreen();
+            QCOMPARE(exitRequested.size(), before + 1);
+            QCOMPARE(exitRequested.last().first().value<QObject *>(), &owner);
+            QTRY_VERIFY(!windows.fullscreen());
+            QTRY_COMPARE(windows.maximized(), maximized);
+            QVERIFY(window.isVisible());
+
+            // Application fullscreen remains when its nested MV layer retires.
+            windows.toggleFullscreen();
+            QTRY_VERIFY(windows.fullscreen());
+            windows.beginContentFullscreen(&owner);
+            windows.toggleFullscreen();
+            QVERIFY(windows.fullscreen());
+            windows.toggleFullscreen();
+            QTRY_VERIFY(!windows.fullscreen());
+            QTRY_COMPARE(windows.maximized(), maximized);
+
+            windows.beginContentFullscreen(&owner);
+            window.hide();
+            windows.endContentFullscreen(&owner);
+            QVERIFY(!window.isVisible());
+            QVERIFY(!windows.fullscreen());
+            QCOMPARE(windows.maximized(), maximized);
+            windows.showWindow();
+            QCOMPARE(windows.maximized(), maximized);
+
+            windows.beginContentFullscreen(&owner);
+            windows.toggleVisibility();
+            QVERIFY(windows.background());
+            QVERIFY(!window.isVisible());
+            windows.endContentFullscreen(&owner);
+            windows.showWindow();
+            QVERIFY(window.isVisible());
+            QVERIFY(!windows.fullscreen());
+            QCOMPARE(windows.maximized(), maximized);
+
+            windows.beginContentFullscreen(&owner);
+            windows.minimize();
+            QVERIFY(windows.fullscreen());
+            windows.endContentFullscreen(&owner);
+            QVERIFY(!windows.fullscreen());
+            QVERIFY(window.windowStates().testFlag(Qt::WindowMinimized));
+            QCOMPARE(windows.maximized(), maximized);
+            windows.showWindow();
+            QVERIFY(window.isVisible());
+            QVERIFY(!windows.fullscreen());
+            QCOMPARE(windows.maximized(), maximized);
+
+            auto *retired = new QObject;
+            windows.beginContentFullscreen(retired);
+            delete retired;
+            QTRY_VERIFY(!windows.fullscreen());
+            QCOMPARE(windows.maximized(), maximized);
+
+            // A window-manager exit already completed outside this overlay is
+            // authoritative; retiring content must not force maximize again.
+            windows.beginContentFullscreen(&owner);
+            window.setWindowState(Qt::WindowNoState);
+            windows.endContentFullscreen(&owner);
+            QVERIFY(!windows.fullscreen());
+            QVERIFY(!windows.maximized());
+        }
+        windows.shutdown();
+    }
+    void disconnectedAndSmallDisplays()
+    {
+        const QRect small(0, 0, 800, 600);
+        const auto recovered =
+            WindowController::restoreBounds(QRect(4000, 4000, 1150, 750), {small}, small);
+        QCOMPARE(recovered, QRect(0, 0, 800, 600));
+        const QRect primary(0, 0, 1920, 1080), secondary(-1920, 0, 1920, 1080);
+        const QRect saved(-1800, 120, 1150, 750);
+        QCOMPARE(WindowController::restoreBounds(saved, {primary, secondary}, primary), saved);
+        const auto disconnected = WindowController::restoreBounds(QRect(4000, 0, 1150, 750),
+                                                                  {primary, secondary}, primary);
+        QVERIFY(primary.contains(disconnected));
+    }
+};
+int main(int argc, char **argv)
+{
+    QGuiApplication app(argc, argv);
+    ShellTest test;
+    return QTest::qExec(&test, argc, argv);
+}
+#include "ShellTest.moc"

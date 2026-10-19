@@ -1,0 +1,46 @@
+# The root window composes independent UI modules. Business pages are registered
+# by the application and loaded by RouteHost; Shell never imports those pages.
+qt_add_qml_module(
+    echo_appui
+    STATIC
+    URI
+    EchoMusic.App
+    SOURCES
+    StartupTypes.h
+    QML_FILES
+    Main.qml
+    StartupPage.qml
+    StartupWindow.qml
+)
+target_link_libraries(
+    echo_appui
+    PRIVATE echo_details
+            echo_detailsplugin
+            echo_startup
+            echo_plugins
+            echo_pluginsplugin
+            echo_controls
+            echo_controlsplugin
+            echo_playback
+            echo_playbackplugin
+            echo_build_options
+            echo_shell
+            echo_shellplugin
+            echo_settings
+            echo_settingsplugin
+            echo_discovery
+            echo_discoveryplugin
+            echo_search
+            echo_searchplugin
+            echo_profile
+            echo_profileplugin
+            echo_themes
+            echo_themesplugin
+            echo_theme
+            echo_themeplugin
+            echo_accountui
+            echo_accountuiplugin
+            echo_libraryui
+            echo_libraryuiplugin
+            Qt6::QuickControls2
+)

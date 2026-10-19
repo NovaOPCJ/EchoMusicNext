@@ -1,0 +1,38 @@
+# Local plans and generated build output
+.planning/
+.agentsroom
+.DS_Store
+/build/
+/target/
+CMakeUserPresets.json
+
+# Development-only formatter dependencies and Python caches
+/tools/format/node_modules/
+__pycache__/
+.mcp.json
+
+# Local instructions and working documents
+/AGENTS.md
+/docs/*
+!/docs/build.md
+!/docs/formatting.md
+!/docs/plugin-sdk.md
+!/docs/plugin-packages.md
+!/docs/third-party-notices.md
+!/docs/licenses/
+!/docs/share/
+
+# Local data collection and comparison tools
+/scripts/*
+!/scripts/build-qt.py
+!/scripts/build.py
+!/scripts/format.py
+!/scripts/install-qt.py
+!/scripts/qt_download.py
+!/scripts/qt_sdk.py
+!/scripts/start.py
+/tools/theme/
+/tools/verification/*.mjs
+/tests/tooling/test_sampling.py
+/tests/fixtures/api/
+/crates/echo-api/src/bin/

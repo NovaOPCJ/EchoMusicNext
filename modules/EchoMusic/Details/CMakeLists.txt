@@ -1,0 +1,64 @@
+qt_add_qml_module(
+    echo_details
+    STATIC
+    URI
+    EchoMusic.Details
+    DEPENDENCIES
+    EchoMusic.Music
+    EchoMusic.Playback
+    EchoMusic.Shell
+    SOURCES
+    CommentsController.h
+    CommentsController.cpp
+    CommentExtent.h
+    CommentExtent.cpp
+    CommentAuthorService.h
+    CommentAuthorService.cpp
+    CommentTextStyle.h
+    CommentTextStyle.cpp
+    SongDetailContext.h
+    SongDetailContext.cpp
+    MvDetailContext.h
+    MvDetailContext.cpp
+    BarrageController.h
+    BarrageController.cpp
+    PlaybackDiscussion.h
+    PlaybackDiscussion.cpp
+    DetailsService.h
+    DetailsService.cpp
+    VideoCollectionService.h
+    VideoCollectionService.cpp
+    QML_FILES
+    PlaybackDiscussionHost.qml
+    PlaybackCommentDrawer.qml
+    SongDetailPage.qml
+    MvDetailPage.qml
+    CommentListState.qml
+    CommentsView.qml
+    CommentRow.qml
+    CommentComposer.qml
+    FloorReplyComposer.qml
+    BarrageLayer.qml
+    BarragePanel.qml
+    MvVideoSurface.qml
+)
+target_link_libraries(
+    echo_details
+    PUBLIC echo_music echo_shell echo_playback_service Qt6::Multimedia
+    PRIVATE echo_network
+            echo_bridge
+            echo_musicplugin
+            echo_shellplugin
+            echo_playback
+            echo_playbackplugin
+            echo_accountui
+            echo_accountuiplugin
+            echo_controls
+            echo_controlsplugin
+            echo_theme
+            echo_themeplugin
+            echo_build_options
+            Qt6::Quick
+            Qt6::QuickControls2
+)
+target_include_directories(echo_details PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

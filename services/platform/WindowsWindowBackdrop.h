@@ -1,0 +1,37 @@
+#pragma once
+#include <QAbstractNativeEventFilter>
+#include <QObject>
+#include <QPointer>
+#include <QString>
+#include <qt_windows.h>
+class QWindow;
+namespace EchoMusic
+{
+/// Qt owns HWND styles and its alpha swapchain. This adapter owns material only.
+class WindowsWindowBackdrop final : public QObject, public QAbstractNativeEventFilter
+{
+    Q_OBJECT
+public:
+    WindowsWindowBackdrop();
+    ~WindowsWindowBackdrop() override;
+    void attach(QWindow *window);
+    bool supported() const;
+    QString apply(bool enabled, bool dark);
+    bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
+
+signals:
+    void completed(const QString &error);
+
+private:
+    void clear();
+    bool accent(int state);
+    bool material(bool enabled);
+    void queueRepair();
+    QMetaObject::Connection m_visibilityConnection;
+    QPointer<QWindow> m_window;
+    HWND m_handle = nullptr;
+    QString m_error;
+    int m_build = 0;
+    bool m_enabled = false, m_dark = false, m_suspended = false, m_repairQueued = false;
+};
+} // namespace EchoMusic

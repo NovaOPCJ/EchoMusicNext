@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "test.application",
+  "name": "Application lifecycle integration fixture",
+  "version": "1.0.0",
+  "kind": "qml-js",
+  "entry": "entry.mjs",
+  "requires": {
+    "hostVersion": ">=0.1.0 <1.0.0",
+    "sdkVersion": ">=1.0.0 <2.0.0",
+    "features": [
+      "lifecycle",
+      "playback.controls",
+      "storage",
+      "ui.titlebar"
+    ]
+  },
+  "capabilities": [],
+  "contexts": [
+    "main"
+  ],
+  "format": "echomod"
+}

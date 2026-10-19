@@ -1,0 +1,44 @@
+qt_add_qml_module(
+    echo_profile
+    STATIC
+    URI
+    EchoMusic.Profile
+    SOURCES
+    ProfileRouteCoordinator.h
+    ProfileRouteCoordinator.cpp
+    QML_FILES
+    ProfilePage.qml
+    ProfileOverview.qml
+    ProfileActionButton.qml
+    ProfileDetails.qml
+    GradeDialog.qml
+    GradePlanet.qml
+    ProfileEditorDialog.qml
+    SocialDrawer.qml
+    SocialChatPanel.qml
+    SocialUserRow.qml
+    DeviceManagerDialog.qml
+    DeviceSessionRow.qml
+    ContentBlacklistDialog.qml
+    ContentBlacklistRow.qml
+    ListeningPreferencesDialog.qml
+    PreferenceCard.qml
+    PreferenceOptionButton.qml
+    PreferenceStrengthControl.qml
+)
+target_include_directories(echo_profile PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_profile
+    PUBLIC echo_accountui echo_shell Qt6::Core Qt6::Qml
+    PRIVATE echo_build_options
+            echo_accountuiplugin
+            echo_shellplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::Gui
+            Qt6::Quick
+            Qt6::QuickShapes
+            Qt6::QuickControls2
+)

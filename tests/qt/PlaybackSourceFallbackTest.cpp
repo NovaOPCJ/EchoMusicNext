@@ -1,0 +1,559 @@
+#include "PlaybackSourceRequest.h"
+#include "PlaybackSourcePlan.h"
+#include "PlaybackService.h"
+#include "TrackTransitionController.h"
+#include <QTcpSocket>
+#include "NetworkPreferences.h"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTcpServer>
+#include <QScopeGuard>
+#include <QNetworkProxy>
+#include <QGuiApplication>
+#include <iostream>
+#include <iterator>
+#include <QtTest>
+using namespace EchoMusic;
+namespace EchoMusic
+{
+class ApiClientTestAccess
+{
+public:
+    static quint64 pending(ApiClient &a, const QString &op)
+    {
+        for (const auto &p : a.m_pending)
+            if (p.request.value("operation").toString() == op)
+                return p.logicalId;
+        return 0;
+    }
+    static QJsonObject query(ApiClient &a, quint64 id)
+    {
+        for (const auto &p : a.m_pending)
+            if (p.logicalId == id)
+                return p.request.value("query").toObject();
+        return {};
+    }
+    static void finish(ApiClient &a, quint64 id, const QJsonValue &v)
+    {
+        a.cancel(id);
+        const auto b = v.isArray() ? QJsonDocument(v.toArray()).toJson()
+                                   : QJsonDocument(v.toObject()).toJson();
+        emit a.succeeded(id, b);
+    }
+    static void fail(ApiClient &a, quint64 id)
+    {
+        a.cancel(id);
+        emit a.failed(id, 1, R"({"message":"source unavailable"})");
+    }
+};
+class MembershipServiceTestAccess
+{
+public:
+    static void ready(MembershipService &m)
+    {
+        m.m_facts = {true, true, true};
+        m.m_age.start();
+    }
+};
+class PlaybackSourceRequestTestAccess
+{
+public:
+    static void exhausted(PlaybackSourceRequest &s, ApiClient &api, const PlaybackTrack &track)
+    {
+        s.cancel();
+        s.m_track = track;
+        s.m_context = true;
+        s.m_revision = api.sessionRevision();
+        s.m_exhausted = true;
+        s.m_cloudTried = true;
+        s.m_catalogStarted = true;
+        s.m_kind = "catalog";
+    }
+};
+class PlaybackServiceTestAccess
+{
+public:
+    static void observeEngine(PlaybackService &p)
+    {
+        QObject::connect(&p.m_engine, &AudioEngine::eventReceived, &p, [&p](const QJsonObject &e) {
+            const auto kind = e.value("event").toString();
+            if (kind == "file-loaded" || kind == "error" || kind == "source-switched")
+                qInfo() << "Source probe engine" << kind << "seq" << e.value("seq").toInteger()
+                        << "track" << e.value("track_seq").toInteger() << "revision"
+                        << e.value("source_revision").toInteger() << "expected" << p.m_audioSequence
+                        << p.m_sourceRevision << "source" << p.sourceKind() << "loading"
+                        << p.loading() << "error" << p.errorMessage();
+        });
+    }
+    static void failAudio(PlaybackService &p)
+    {
+        p.consumeOutputEvent({{"event", "error"},
+                              {"error_code", "decode"},
+                              {"message", "invalid data"},
+                              {"track_seq", qint64(p.m_audioSequence)}});
+    }
+    static void loadRejectedNormalMedia(PlaybackService &p, const QString &url)
+    {
+        PlaybackSourceRequestTestAccess::exhausted(p.m_source, p.m_api, p.m_track);
+        p.m_transition->clear();
+        p.m_engine.command(AudioEngine::Stop);
+        p.m_urls = {url};
+        p.m_urlIndex = 0;
+        p.m_loading = true;
+        p.m_loaded = false;
+        p.m_seamless = false;
+        p.m_sourceKind = "catalog";
+        p.m_sourceFailure.clear();
+        p.m_mvFailure.clear();
+        p.m_audioTrack = 0;
+        p.m_resumePosition = -1;
+        p.loadNextUrl();
+    }
+};
+} // namespace EchoMusic
+namespace
+{
+const QString hashA(32, 'a'), hashB(32, 'b'), hashC(32, 'c');
+QJsonObject file(quint64 song, const QString &hash, quint64 id, const QString &standard = {})
+{
+    return {{"song", QJsonObject{{"id", QString::number(song)}, {"hash", hash}}},
+            {"file_id", qint64(id)},
+            {"audio_id", qint64(song + 1000)},
+            {"hash_std", standard},
+            {"source_file_name", "Test.flac"}};
+}
+QJsonObject page(const QJsonArray &items, int total)
+{
+    return {{"page", QJsonObject{{"items", items}, {"total", total}}}};
+}
+QJsonObject source(const QString &url)
+{
+    return {{"urls", QJsonArray{url}}, {"backup_urls", QJsonArray{}}};
+}
+struct Fixture
+{
+    QTcpServer sink;
+    ApiClient api{DeviceIdentity::temporary()};
+    MembershipService membership{api};
+    CloudAudioIndex cloud{api};
+    PlaybackSourceRequest request{api, membership, nullptr, &cloud};
+    Fixture()
+    {
+        sink.listen(QHostAddress::LocalHost);
+        api.setNetworkTransport(sink.serverPort());
+        api.setAccount(900001, "isolated-token");
+        MembershipServiceTestAccess::ready(membership);
+    }
+    ~Fixture()
+    {
+        request.cancel();
+        api.shutdown();
+    }
+};
+} // namespace
+class PlaybackSourceFallbackTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void qualityRightsRespectFreeResourcesAndUnknownFacts()
+    {
+        using Q = ApiClient::PlaybackQuality;
+        auto rights = [](const QString &q, int privilege, int status) {
+            return QJsonObject{{"variants", QJsonArray{QJsonObject{{"quality", q},
+                                                                   {"privilege", privilege},
+                                                                   {"service_status", status},
+                                                                   {"hash", hashA}}}}};
+        };
+        QVERIFY(PlaybackSourcePlan::qualityAccessReason(Q::ViperTape, {true, false, false}, true,
+                                                        rights("viper_tape", 0, 1))
+                    .isEmpty());
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::ViperTape, {true, true, false}, true,
+                                                         rights("viper_tape", 10, 0))
+                     .isEmpty());
+        QVERIFY(PlaybackSourcePlan::qualityAccessReason(Q::Standard, {}, true, rights("128", 10, 0))
+                    .isEmpty());
+        QVERIFY(PlaybackSourcePlan::qualityAccessReason(Q::Flac, {true, true, false}, true,
+                                                        rights("flac", 10, 0))
+                    .isEmpty());
+        QVERIFY(!PlaybackSourcePlan::qualityAccessReason(Q::HiRes, {true, true, true}, true,
+                                                         rights("flac", 0, 1))
+                     .isEmpty());
+        const QJsonObject unknown{
+            {"variants", QJsonArray{QJsonObject{{"quality", "flac"}, {"hash", hashA}}}}};
+        QVERIFY(PlaybackSourcePlan::qualityAccessReason(Q::Flac, {}, true, unknown).isEmpty());
+        const QJsonObject duplicate{
+            {"variants",
+             QJsonArray{QJsonObject{{"quality", "128"}, {"hash", hashA}, {"level", 2}},
+                        QJsonObject{{"quality", "128"}, {"hash", hashB}, {"level", 1}}}}};
+        QCOMPARE(
+            PlaybackSourcePlan::qualityVariant(Q::Standard, duplicate).value("hash").toString(),
+            hashB);
+        const auto plan = PlaybackSourcePlan::catalog(hashC, duplicate, Q::Standard,
+                                                      ApiClient::SoundEffect::None, false, true);
+        QCOMPARE(plan.first().hash, hashA);
+    }
+    void cloudIndexKeepsFirstMatchAndCancelsOldAccount()
+    {
+        Fixture f;
+        f.cloud.ensure();
+        auto id = ApiClientTestAccess::pending(f.api, "user_cloud");
+        QVERIFY(id);
+        ApiClientTestAccess::finish(f.api, id,
+                                    page({file(12, hashA, 1, hashC), file(12, hashB, 2)}, 3));
+        id = ApiClientTestAccess::pending(f.api, "user_cloud");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("page").toInt(), 2);
+        ApiClientTestAccess::finish(f.api, id, page({file(13, hashB, 3)}, 3));
+        PlaybackTrack track;
+        track.id = "12";
+        track.songId = 12;
+        track.hash = hashC;
+        QCOMPARE(f.cloud.source(track).value("file_id").toInt(), 1);
+        track.songId = 0;
+        track.hash = hashB;
+        QCOMPARE(f.cloud.source(track).value("file_id").toInt(), 2);
+        const auto byAudio =
+            PlaybackTrack::fromDomain({{"id", "0"}, {"hash", hashC}, {"audio_id", 1012}});
+        QCOMPARE(f.cloud.source(byAudio).value("file_id").toInt(), 1);
+        const auto byStd = PlaybackTrack::fromDomain(
+            {{"id", "0"}, {"hash", QString(32, 'd')}, {"hash_std", hashC}});
+        QCOMPARE(f.cloud.source(byStd).value("file_id").toInt(), 1);
+        QCOMPARE(byAudio.catalogMetadata.value("audio_id").toInt(), 1012);
+        f.cloud.invalidate();
+        f.cloud.ensure();
+        id = ApiClientTestAccess::pending(f.api, "user_cloud");
+        QVERIFY(id);
+        f.api.setAccount(900002, "other-isolated-token");
+        emit f.api.succeeded(id, QJsonDocument(page({file(12, hashA, 1)}, 1)).toJson());
+        QVERIFY(f.cloud.source(track).isEmpty());
+    }
+    void catalogThenCloudAndCloudPriorityUseDistinctIdentities()
+    {
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "12";
+        track.songId = 12;
+        track.hash = hashC;
+        f.cloud.ensure();
+        auto id = ApiClientTestAccess::pending(f.api, "user_cloud");
+        ApiClientTestAccess::finish(f.api, id, page({file(12, hashA, 71, hashC)}, 1));
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "flac"}, {"hash", hashB}}}}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::Flac, ApiClient::SoundEffect::None,
+                          rights, false);
+        id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("hash").toString(), hashB);
+        ApiClientTestAccess::fail(f.api, id);
+        id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        ApiClientTestAccess::fail(f.api, id);
+        id = ApiClientTestAccess::pending(f.api, "user_cloud_url");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("hash").toString(), hashA);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("album_audio_id").toInt(), 12);
+        ApiClientTestAccess::finish(f.api, id, source("https://example.invalid/cloud"));
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][2].toJsonObject().value("source_kind").toString(), QString("cloud"));
+        track.id = "cloud-file:71";
+        track.catalogMetadata = {
+            {"source_kind", "cloud"},
+            {"cloud_source", CloudAudioIndex::fromRow(file(12, hashA, 71, hashC))}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::Flac, ApiClient::SoundEffect::None,
+                          rights, false);
+        QVERIFY(!ApiClientTestAccess::pending(f.api, "song_url_auth_merge"));
+        id = ApiClientTestAccess::pending(f.api, "user_cloud_url");
+        QVERIFY(id);
+        ApiClientTestAccess::finish(f.api, id, source("https://example.invalid/cloud"));
+        QVERIFY(f.request.continueAfterFailure());
+        id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("hash").toString(), hashB);
+        QCOMPARE(resolved.last()[0].value<PlaybackTrack>().id, QString("cloud-file:71"));
+    }
+    void decoderFailureContinuesCandidateAndStaleReplyCannotResolve()
+    {
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "12";
+        track.songId = 12;
+        track.hash = hashA;
+        const QJsonObject rights{
+            {"variants", QJsonArray{QJsonObject{{"quality", "high"}, {"hash", hashB}},
+                                    QJsonObject{{"quality", "flac"}, {"hash", hashC}}}}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::HiRes, ApiClient::SoundEffect::None,
+                          rights, true);
+        auto id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        ApiClientTestAccess::finish(f.api, id, source("https://example.invalid/first"));
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(f.request.continueAfterFailure());
+        id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("hash").toString(), hashC);
+        f.request.cancel();
+        emit f.api.succeeded(id, QJsonDocument(source("https://example.invalid/stale")).toJson());
+        QCOMPARE(resolved.size(), 1);
+        QVERIFY(!PlaybackSourceRequest::mediaError(
+            {{"error_code", "output-stream"}, {"message", "decode failed"}}));
+        QVERIFY(PlaybackSourceRequest::mediaError({{"error_code", "decode"}}));
+    }
+    void mvSelectionIsBoundedAndPendingQueriesCancel()
+    {
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        PlaybackTrack track;
+        track.id = "12";
+        track.songId = 12;
+        track.hash = hashA;
+        QVERIFY(f.request.tryMv(track));
+        auto id = ApiClientTestAccess::pending(f.api, "kmr_audio_mv");
+        QVERIFY(id);
+        QJsonArray formats{QJsonObject{{"hash", hashA}, {"codec", "MKV"}, {"size_bytes", 100}},
+                           QJsonObject{{"hash", hashB}, {"codec", "MKV"}, {"size_bytes", 10}},
+                           QJsonObject{{"hash", hashC}, {"codec", "H.264"}, {"size_bytes", 20}}};
+        QJsonArray videos{QJsonObject{{"audio_fallback_eligible", false},
+                                      {"duration_ms", 1000},
+                                      {"recommendation_code", 9},
+                                      {"sources", formats}},
+                          QJsonObject{{"audio_fallback_eligible", true},
+                                      {"duration_ms", 1000},
+                                      {"sources", formats}}};
+        QCOMPARE(PlaybackSourceRequest::mvHashes(videos), QStringList({hashB, hashC}));
+        ApiClientTestAccess::finish(f.api, id, videos);
+        int count = 0;
+        while ((id = ApiClientTestAccess::pending(f.api, "video_url"))) {
+            ApiClientTestAccess::finish(
+                f.api, id,
+                QJsonObject{{"url", QString("https://example.invalid/mv%1").arg(++count)},
+                            {"backup_urls", QJsonArray{}}});
+        }
+        QCOMPARE(count, 2);
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][2].toJsonObject().value("source_kind").toString(), QString("mv"));
+        QVERIFY(!f.request.tryMv(track));
+        f.request.cancel();
+        QVERIFY(f.request.tryMv(track));
+        id = ApiClientTestAccess::pending(f.api, "kmr_audio_mv");
+        f.request.disableMv();
+        emit f.api.succeeded(id, QJsonDocument(videos).toJson());
+        QCOMPARE(resolved.size(), 1);
+    }
+    void cloudLoudnessFailureKeepsCloudAndCancelDiscardsParallelMv()
+    {
+        Fixture f;
+        QSignalSpy resolved(&f.request, &PlaybackSourceRequest::resolved);
+        QSignalSpy failed(&f.request, &PlaybackSourceRequest::failed);
+        PlaybackTrack track;
+        track.id = "cloud-file:1";
+        track.songId = 12;
+        track.hash = hashA;
+        track.catalogMetadata = {
+            {"source_kind", "cloud"},
+            {"cloud_source", CloudAudioIndex::fromRow(file(12, hashA, 1, hashB))}};
+        f.request.resolve(track, ApiClient::PlaybackQuality::Standard, ApiClient::SoundEffect::None,
+                          {}, true, true, {}, {}, true);
+        auto id = ApiClientTestAccess::pending(f.api, "user_cloud_url");
+        QVERIFY(id);
+        ApiClientTestAccess::finish(f.api, id, source("https://example.invalid/cloud"));
+        QCOMPARE(resolved.size(), 0);
+        id = ApiClientTestAccess::pending(f.api, "song_url_auth_merge");
+        QVERIFY(id);
+        QCOMPARE(ApiClientTestAccess::query(f.api, id).value("hash").toString(), hashB);
+        ApiClientTestAccess::fail(f.api, id);
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(resolved[0][2].toJsonObject().value("source_kind").toString(), QString("cloud"));
+        QCOMPARE(failed.size(), 0);
+        f.request.cancel();
+        QVERIFY(f.request.tryMv(track));
+        id = ApiClientTestAccess::pending(f.api, "kmr_audio_mv");
+        QJsonArray videos{
+            QJsonObject{{"audio_fallback_eligible", true},
+                        {"duration_ms", 1000},
+                        {"sources", QJsonArray{QJsonObject{{"hash", hashA}, {"codec", "MKV"}},
+                                               QJsonObject{{"hash", hashB}, {"codec", "H.264"}}}}}};
+        ApiClientTestAccess::finish(f.api, id, videos);
+        const auto first = ApiClientTestAccess::pending(f.api, "video_url");
+        QVERIFY(first);
+        f.request.cancel();
+        emit f.api.succeeded(
+            first, QJsonDocument(QJsonObject{{"url", "https://example.invalid/stale"}}).toJson());
+        QCOMPARE(resolved.size(), 1);
+        QCOMPARE(ApiClientTestAccess::pending(f.api, "video_url"), 0);
+        QVERIFY(f.request.tryMv(track));
+        id = ApiClientTestAccess::pending(f.api, "kmr_audio_mv");
+        ApiClientTestAccess::finish(
+            f.api, id,
+            QJsonArray{QJsonObject{{"audio_fallback_eligible", false},
+                                   {"audio_fallback_facts", QJsonObject{{"short_code", 4}}}}});
+        QCOMPARE(failed.size(), 1);
+        QVERIFY(failed[0][0].toString().contains("短视频"));
+    }
+    void mvPreferenceIsOptInAndPersists()
+    {
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+        PlaybackPreferences first(settings);
+        QVERIFY(!first.mvAudioFallbackEnabled());
+        first.setMvAudioFallbackEnabled(true);
+        PlaybackPreferences second(settings);
+        QVERIFY(second.mvAudioFallbackEnabled());
+        second.setMvAudioFallbackEnabled(false);
+    }
+    void liveCloudAndMvUseActualAudioEngine();
+};
+
+void PlaybackSourceFallbackTest::liveCloudAndMvUseActualAudioEngine()
+{
+    if (qEnvironmentVariable("ECHO_LIVE_SOURCE_FALLBACK") != "1")
+        QSKIP("Opt-in current account/audio; stdin credentials only");
+    const std::string input((std::istreambuf_iterator<char>(std::cin)),
+                            std::istreambuf_iterator<char>());
+    const auto identity = QJsonDocument::fromJson(QByteArray::fromStdString(input)).object();
+    DeviceIdentity device{identity.value("mid").toString(),
+                          identity.value("dfid").toString(),
+                          identity.value("guid").toString(),
+                          identity.value("mac").toString(),
+                          identity.value("device_name").toString(),
+                          "-",
+                          "-"};
+    ApiClient api(device);
+    QTemporaryDir dir;
+    QSettings settings(dir.filePath("settings.ini"), QSettings::IniFormat);
+    settings.setValue("playback/volume", 0);
+    settings.setValue("playback/defaultQuality", "standard");
+    settings.setValue("playback/transitionMode", "none");
+    NetworkPreferences network(settings, api);
+    QVERIFY(network.transportAvailable());
+    const auto previous = QNetworkProxy::applicationProxy();
+    const auto restore = qScopeGuard([&] { QNetworkProxy::setApplicationProxy(previous); });
+    network.installApplicationTransport();
+    QVERIFY(api.setAccount(quint64(identity.value("userid").toInteger()),
+                           identity.value("token").toString(), identity.value("t1").toString()));
+    QSignalSpy result(&api, &ApiClient::succeeded);
+    const auto response = [&](quint64 id) {
+        for (const auto &row : result)
+            if (row[0].toULongLong() == id)
+                return row[1].toByteArray();
+        return QByteArray();
+    };
+    auto id = api.userCloud(1, 100);
+    QTRY_VERIFY_WITH_TIMEOUT(!response(id).isEmpty(), 30000);
+    const auto files = QJsonDocument::fromJson(response(id))
+                           .object()
+                           .value("page")
+                           .toObject()
+                           .value("items")
+                           .toArray();
+    QVERIFY(!files.isEmpty());
+    QJsonObject selected;
+    for (const auto &v : files) {
+        const auto row = v.toObject();
+        if (row.value("song").toObject().value("hash").toString().size() == 32 &&
+            row.value("size_bytes").toInteger() > 1024 * 1024 &&
+            row.value("hash_std").toString().size() == 32) {
+            selected = row;
+            break;
+        }
+    }
+    QVERIFY(!selected.isEmpty());
+    auto cloudSong = selected.value("song").toObject();
+    cloudSong["metadata"] =
+        QJsonObject{{"source_kind", "cloud"}, {"cloud_source", CloudAudioIndex::fromRow(selected)}};
+    if (cloudSong.value("id").toString().isEmpty() || cloudSong.value("id").toString() == "0")
+        cloudSong["id"] = "cloud-file:" + QString::number(selected.value("file_id").toInteger());
+    auto cloudTrack = PlaybackTrack::fromDomain(cloudSong);
+    QVERIFY(cloudTrack.playable());
+    PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"), &network);
+    playback.audioControls()->setVolumeNormalization(false);
+    PlaybackServiceTestAccess::observeEngine(playback);
+    QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+    const auto cleanup = qScopeGuard([&] {
+        playback.shutdown();
+        api.shutdown();
+    });
+    playback.playTracks({cloudTrack}, 0, "Source verification", "source-verification");
+    QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && playback.positionMs() > 1000, 45000);
+    QCOMPARE(playback.sourceKind(), QString("cloud"));
+    QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+    qInfo() << "Actual cloud URL/native playback accepted";
+    id = api.albumSongs(966846, 1, 50);
+    QTRY_VERIFY_WITH_TIMEOUT(!response(id).isEmpty(), 30000);
+    const auto songs = QJsonDocument::fromJson(response(id))
+                           .object()
+                           .value("page")
+                           .toObject()
+                           .value("items")
+                           .toArray();
+    PlaybackTrack track;
+    for (const auto &v : songs) {
+        const auto song = v.toObject().value("song").toObject();
+        if (song.value("id").toString() == "32100650") {
+            track = PlaybackTrack::fromDomain(song);
+            break;
+        }
+    }
+    QVERIFY(track.playable());
+    QTcpServer rejected;
+    QVERIFY(rejected.listen(QHostAddress::LocalHost));
+    bool notFound = false;
+    connect(&rejected, &QTcpServer::newConnection, &rejected, [&] {
+        while (auto *socket = rejected.nextPendingConnection()) {
+            connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                socket->readAll();
+                const QByteArray bytes = "invalid-media";
+                socket->write(
+                    notFound
+                        ? QByteArray("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: "
+                                     "close\r\n\r\n")
+                        : QByteArray(
+                              "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: ") +
+                              QByteArray::number(bytes.size()) + "\r\nConnection: close\r\n\r\n" +
+                              bytes);
+                socket->disconnectFromHost();
+            });
+        }
+    });
+    playback.preferences()->setMvAudioFallbackEnabled(true);
+    for (const bool networkFailure : {false, true}) {
+        notFound = networkFailure;
+        playback.playTracks({track}, 0, "Source verification", "source-verification");
+        QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 45000);
+        PlaybackServiceTestAccess::loadRejectedNormalMedia(
+            playback, QString("http://127.0.0.1:%1/rejected.wav").arg(rejected.serverPort()));
+        QTRY_VERIFY_WITH_TIMEOUT(playback.sourceKind() == "mv" && playback.playing() &&
+                                     playback.positionMs() > 1000,
+                                 60000);
+        QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+        QVERIFY(playback.positionMs() < 15000);
+        playback.seek(60000);
+        QTRY_VERIFY_WITH_TIMEOUT(playback.positionMs() > 59000, 15000);
+        qInfo() << "Actual MV query/URL/audio/seek accepted after controlled"
+                << (networkFailure ? "HTTP 404" : "native decode failure");
+    }
+    playback.preferences()->setMvAudioFallbackEnabled(false);
+    QCOMPARE(playback.sourceKind(), QString("mv"));
+    QVERIFY(playback.playing());
+    playback.setQuality("standard");
+    QTimer::singleShot(10000, &playback, [&] {
+        qInfo() << "Catalog restore state" << playback.sourceKind() << playback.loading()
+                << playback.playing() << playback.errorMessage();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(playback.sourceKind() == "catalog" && !playback.loading(), 15000);
+    QVERIFY2(playback.errorMessage().isEmpty(), qPrintable(playback.errorMessage()));
+    playback.shutdown();
+    QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 20000);
+    api.shutdown();
+    QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+}
+int main(int argc, char **argv)
+{
+    QGuiApplication app(argc, argv);
+    PlaybackSourceFallbackTest test;
+    return QTest::qExec(&test, argc, argv);
+}
+#include "PlaybackSourceFallbackTest.moc"

@@ -1,0 +1,42 @@
+#pragma once
+#include <QObject>
+class PlaybackPageTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void restoredTrackLoadsLyricsWithoutStartingPlayback_data();
+    void restoredTrackLoadsLyricsWithoutStartingPlayback();
+    void queueDrawerClipsScrolledRowsInsideItsBorder();
+    void popupFrostSamplesTheVisiblePageAndReleases();
+    void untimedLyricsUseFullInkAndKeepRomanizationOnEverySurface();
+    void desktopUnwrappedReadingUsesNativeCursorPositions();
+    void sceneGraphPlaybackCpu();
+    void pageArtworkTransitionPreservesGeometryAndReverses();
+    void lyricResourcesReleaseAcrossPageCycles();
+    void preferencesValidateAndPersistWithoutResettingGlobalBackground();
+    void optionalArtworkCancelsStaleTrackAndRestoresBoundedMemoryCache();
+    void interludeMotionMatchesObservedReference();
+    void interludeHasIndependentRowAndNativePixels();
+    void interludeRangesRespectOverlapsOffsetsAndSeek();
+    void characterMotionMatchesUpstreamMeasurements();
+    void wordBoundarySweepMatchesUpstreamMeasurements();
+    void nativeEngineTimelineHasNoPeriodicHold();
+    void presentationClockHandlesJitterPauseSpeedAndSeek();
+    void shapedWordPixelsProgressSeekAndWrap();
+    void shapedClustersKeepCompleteInk();
+    void nativeGpuClustersMatchWholeQtInk();
+    void lyricRowsMoveIndependentlyAndSettle();
+    void presentationScheduleMatchesUnmodifiedAmll();
+    void scaleSpringMatchesUnmodifiedAmll();
+    void springRetargetKeepsMovingDuringStagger();
+    void lyricLineBeginningsUseFullInkImmediately();
+    void liveWickedWonderlandLineBeginnings();
+    void skinSelectionBadgeIsAbovePreviewPixels();
+    void pageSkinLifecycleAndBoundedDelegates();
+    void manualScrollRecoversAndLargeSeeksRemainVirtualized();
+    void renderThemesScaleAndNarrowViewport();
+    void coverBackgroundRendersAndReleasesItsSource();
+    void backgroundMemoryAndLifecycle();
+    void transparentBackgroundComposesOnceAndFrostReleasesTextures();
+    void liveOptionalArtworkDecodesAndStopsWhenPageCloses();
+};

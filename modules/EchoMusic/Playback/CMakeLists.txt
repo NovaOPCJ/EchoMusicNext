@@ -1,0 +1,83 @@
+qt_add_qml_module(
+    echo_playback
+    STATIC
+    URI
+    EchoMusic.Playback
+    SOURCES
+    PlaybackTypes.h
+    LyricLine.h
+    LyricLine.cpp
+    LyricClock.h
+    LyricClock.cpp
+    LyricInterlude.h
+    LyricInterlude.cpp
+    LyricTimeline.h
+    LyricTimeline.cpp
+    LyricSpring.h
+    LyricSpring.cpp
+    LyricMaterial.h
+    LyricMaterial.cpp
+    QML_FILES
+    PlaybackProgress.qml
+    PlaybackControls.qml
+    PlaybackPage.qml
+    PlaybackPageMotion.qml
+    PlaybackBackground.qml
+    PlaybackBlurredBackground.qml
+    PlaybackAlbumCover.qml
+    CoverLyricViewport.qml
+    FloatingLyricViewport.qml
+    FloatingLyricContent.qml
+    LyricRubyLine.qml
+    LyricVerticalLine.qml
+    InterludeDots.qml
+    LyricSkinSettings.qml
+    LyricSkinDrawer.qml
+    PlaybackLyricTools.qml
+    LyricSourceDialog.qml
+    LyricSourceSearchForm.qml
+    AddToPlaylistDialog.qml
+    PlaybackQueueDrawer.qml
+    PlaybackOptionsPopup.qml
+    PlaybackCastPopup.qml
+    CastDeviceGroup.qml
+    SleepTimerPopup.qml
+    PlaybackEffectPopup.qml
+    PlaybackEffectPresetButton.qml
+    PlaybackSongEffectPane.qml
+    PlaybackEqualizerPane.qml
+    PlaybackImpulseEffectPane.qml
+    PlaybackEffectPlaza.qml
+    PlaybackEffectCard.qml
+    DspProviderDialog.qml
+    DspProviderPanel.qml
+    DspProviderControlCard.qml
+    DspInstalledProviderCard.qml
+)
+target_link_libraries(
+    echo_playback
+    PUBLIC echo_playback_service Qt6::Qml
+    PRIVATE echo_build_options
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::Quick
+            Qt6::Multimedia
+            Qt6::QuickEffects
+            Qt6::QuickControls2
+)
+
+target_include_directories(echo_playback PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+qt_add_shaders(
+    echo_playback
+    echo_lyric_shaders
+    BATCHABLE
+    PREFIX
+    /qt/qml/EchoMusic/Playback
+    FILES
+    shaders/lyric-fluid.frag
+    shaders/lyric-mask.vert
+    shaders/lyric-mask.frag
+)

@@ -1,0 +1,180 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Effects
+import EchoMusic.Theme
+import EchoMusic.Playback
+
+Item {
+    id: content
+    required property PlaybackService playback
+    property bool resourceActive: true
+    property string shadowStrength: "normal"
+    property real arrival: 0
+    property int textAlignment: Qt.AlignLeft
+    property bool vertical: false
+    property real fontSize: 40
+    property font baseFont: Theme.store.desktopLyricBaseFont
+    readonly property font textFont: Theme.store.styledFont(baseFont, fontSize, bold ? 700 : 400, 0, false, false)
+    property var line: ({})
+    property var nextLine: ({})
+    property var rubyUnits: []
+    property var verticalUnits: []
+    property var nextVerticalUnits: []
+    property bool ruby: false
+    property bool preview: false
+    property bool bold: false
+    property real renderTime: 0
+    property color playedColor: "#31cfa1"
+    property color unplayedColor: "#7a7a7a"
+    property string secondary: ""
+    property string alignment: "left"
+    property real contentInset: 16
+    property bool sourceSpacing: false
+
+    anchors.fill: parent
+    anchors.margins: Math.min(contentInset, parent ? parent.height * .12 : contentInset)
+
+    scale: 1 - content.arrival * .015
+    transformOrigin: content.textAlignment === Qt.AlignRight ? Item.Right : content.textAlignment === Qt.AlignHCenter ? Item.Center : Item.Left
+    transform: Translate {
+        y: content.vertical ? 0 : content.arrival * 7
+    }
+    layer.enabled: content.resourceActive && content.shadowStrength !== "none"
+    layer.effect: MultiEffect {
+        shadowEnabled: true
+        shadowColor: "#000000"
+        shadowOpacity: content.shadowStrength === "soft" ? .4 : content.shadowStrength === "strong" ? .95 : .7
+        shadowBlur: content.shadowStrength === "soft" ? .7 : .35
+        shadowVerticalOffset: content.shadowStrength === "strong" ? 2 : 1
+        autoPaddingEnabled: true
+    }
+    Connections {
+        target: content.playback
+        function onTimelineReset(): void {
+            if (!main.item)
+                return;
+            if (content.vertical)
+                (main.item as LyricVerticalLine).resetFollow();
+            else if (content.ruby)
+                (main.item as LyricRubyLine).syncFocus();
+        }
+    }
+    Loader {
+        id: main
+        x: content.vertical ? parent.width - width : 0
+        width: content.vertical && (content.preview || content.secondary.length > 0) ? parent.width / 2 - 6 : parent.width
+        height: content.vertical ? parent.height : implicitHeight
+        sourceComponent: content.vertical ? verticalText : content.ruby ? rubyText : horizontalText
+    }
+    Component {
+        id: horizontalText
+        Item {
+            id: horizontalViewport
+            implicitHeight: mainInk.textHeight
+            clip: true
+            readonly property real scrollOffset: Math.max(0, Math.min(mainInk.textWidth - width, mainInk.readingPosition(content.renderTime - content.playback.lyrics.offsetMs) - content.textFont.pixelSize - width * .6))
+            LyricLine {
+                id: mainInk
+                x: -content.textFont.pixelSize - horizontalViewport.scrollOffset
+                wrap: false
+                y: -content.textFont.pixelSize
+                width: parent.width + 2 * content.textFont.pixelSize
+                height: implicitHeight
+                text: content.line.lineText || content.playback.title
+                words: content.line.words || []
+                startMs: (content.line.startMs || 0) - content.playback.lyrics.offsetMs
+                durationMs: content.line.durationMs || 0
+                current: content.line.lineText !== undefined
+                timeMs: content.renderTime - content.playback.lyrics.offsetMs
+                font: content.textFont
+                playedColor: content.playedColor
+                unplayedColor: content.line.lineText === undefined ? content.playedColor : content.unplayedColor
+                alignment: content.textAlignment
+                animateWords: content.resourceActive && Theme.store.motionEnabled
+            }
+        }
+    }
+    Component {
+        id: rubyText
+        LyricRubyLine {
+            wrap: false
+            alignment: content.textAlignment
+            units: content.rubyUnits
+            font: content.textFont
+            timeMs: content.renderTime - content.playback.lyrics.offsetMs
+            current: true
+            playedColor: content.playedColor
+            unplayedColor: content.unplayedColor
+            animateWords: content.resourceActive && Theme.store.motionEnabled
+        }
+    }
+    Component {
+        id: verticalText
+        LyricVerticalLine {
+            alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
+            units: content.line.lineText !== undefined ? content.verticalUnits : content.playback.lyrics.verticalText(content.playback.title)
+            font: content.textFont
+            timeMs: content.renderTime - content.playback.lyrics.offsetMs
+            current: true
+            playedColor: content.playedColor
+            unplayedColor: content.line.lineText !== undefined ? content.unplayedColor : content.playedColor
+        }
+    }
+    Loader {
+        active: content.vertical && content.preview
+        x: 0
+        width: parent.width / 2
+        height: parent.height
+        sourceComponent: LyricVerticalLine {
+            alignment: content.textAlignment === Qt.AlignLeft && content.alignment === "both" ? Qt.AlignBottom : Qt.AlignTop
+            units: content.nextVerticalUnits
+            font: Theme.store.styledFont(content.baseFont, content.fontSize * .8, content.bold ? 700 : 400, 0, false, false)
+            playedColor: content.playedColor
+            unplayedColor: content.unplayedColor
+        }
+    }
+    Column {
+        y: content.sourceSpacing ? Math.max(main.height, content.fontSize * 1.24) + 8 + Math.min(8, Math.max(3, Math.round(content.fontSize * .1))) : main.height + content.fontSize * .3
+        width: parent.width
+        visible: !content.vertical && (content.secondary.length > 0 || content.preview || content.line.lineText === undefined)
+        Repeater {
+            model: content.secondary.length ? content.secondary.split("\n") : content.preview ? [content.nextLine.lineText || ""] : [content.playback.artist]
+            delegate: Item {
+                id: secondaryRow
+                required property string modelData
+                width: parent.width
+                height: content.sourceSpacing ? content.fontSize * (content.preview ? .8 : .72) * 1.24 + 8 + Math.min(8, Math.max(3, Math.round(content.fontSize * .1))) : secondaryText.implicitHeight
+                clip: true
+                readonly property real progress: content.line.durationMs > 0 ? Math.max(0, Math.min(1, (content.renderTime - content.line.startMs) / content.line.durationMs)) : 0
+                Label {
+                    id: secondaryText
+                    x: content.preview ? 0 : -Math.max(0, implicitWidth - secondaryRow.width) * secondaryRow.progress
+                    width: content.preview ? secondaryRow.width : Math.max(secondaryRow.width, implicitWidth)
+                    horizontalAlignment: content.preview && content.alignment === "both" ? (content.textAlignment === Qt.AlignLeft ? Qt.AlignRight : Qt.AlignLeft) : content.textAlignment
+                    text: secondaryRow.modelData
+                    textFormat: Text.PlainText
+                    wrapMode: Text.NoWrap
+                    elide: content.preview ? Text.ElideRight : Text.ElideNone
+                    font: Theme.store.styledFont(content.baseFont, content.fontSize * (content.preview ? .8 : content.sourceSpacing ? .72 : .64), content.bold ? 700 : 400, 0, false, false)
+                    color: content.preview ? content.unplayedColor : content.playedColor
+                    opacity: content.sourceSpacing ? 1 : .72
+                }
+            }
+        }
+    }
+    Loader {
+        active: content.vertical && content.secondary.length > 0
+        x: 0
+        width: parent.width / 2 - 6
+        height: parent.height
+        sourceComponent: LyricVerticalLine {
+            units: content.playback.lyrics.verticalText(content.secondary)
+            font: Theme.store.styledFont(content.baseFont, content.fontSize * .64, content.bold ? 700 : 400, 0, false, false)
+            alignment: content.textAlignment === Qt.AlignRight ? Qt.AlignBottom : content.textAlignment === Qt.AlignHCenter ? Qt.AlignVCenter : Qt.AlignTop
+            playedColor: content.playedColor
+            unplayedColor: content.playedColor
+            opacity: .72
+        }
+    }
+}

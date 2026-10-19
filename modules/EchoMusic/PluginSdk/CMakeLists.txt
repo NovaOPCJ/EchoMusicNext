@@ -1,0 +1,42 @@
+qt_add_qml_module(
+    echo_plugin_sdk
+    STATIC
+    URI
+    EchoMusic.PluginSdk
+    VERSION
+    1.0
+    DEPENDENCIES
+    EchoMusic.Shell
+    SOURCES
+    EchoPluginAudio.h
+    EchoPluginAudio.cpp
+    EchoPluginOperation.h
+    EchoPluginOperation.cpp
+    EchoPluginPromise.h
+    EchoPluginRegistration.h
+    EchoPluginRegistration.cpp
+    EchoPluginPlayer.h
+    EchoPluginPlayer.cpp
+    EchoPluginContext.h
+    EchoPluginContext.cpp
+    EchoPluginUi.h
+    EchoPluginUi.cpp
+    EchoPluginIo.h
+    EchoPluginIo.cpp
+    EchoPluginRegistry.h
+    EchoPluginRegistry.cpp
+    EchoPluginTask.h
+    EchoPluginTask.cpp
+    PluginSdkContract.h
+    PluginSdkContract.cpp
+    QML_FILES
+    EchoPluginPage.qml
+)
+target_include_directories(echo_plugin_sdk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_plugin_sdk
+    PUBLIC Qt6::Qml echo_plugin_packages echo_shell echo_theme echo_playback_service echo_account
+    PRIVATE Qt6::Sql Qt6::Network echo_build_options
+)
+
+qt_add_resources(echo_plugin_sdk echo_plugin_js PREFIX "/echo/plugins" FILES sdk.mjs)

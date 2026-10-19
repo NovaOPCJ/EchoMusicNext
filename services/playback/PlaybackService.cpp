@@ -1,0 +1,1496 @@
+#include "PlaybackService.h"
+#include "TrackTransitionController.h"
+#include "PlaybackRecoveryController.h"
+#include "PlaybackFailureController.h"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QUrl>
+#include <cmath>
+namespace EchoMusic
+{
+namespace
+{
+QJsonObject engineStartupOptions(const PlayerEnginePreferences &engine,
+                                 const NetworkPreferences *network)
+{
+    auto options = engine.startupOptions();
+    // Native track probing runs on a different actor and snapshots the core's
+    // configuration. Initialize its deadline with the engine, rather than rely
+    // solely on a queued command after ready that could race the first probe.
+    options.insert("network_timeout_secs", network ? network->playerTimeoutSeconds() : 60);
+    if (network)
+        options.insert("http_proxy", network->transportEndpoint().toString(QUrl::FullyEncoded));
+    return options;
+}
+} // namespace
+void PlaybackService::retryEngineInitialization()
+{
+    if (m_closing || m_ready)
+        return;
+    m_initializationError.clear();
+    m_error.clear();
+    m_engine.retryInitialization(engineStartupOptions(m_enginePreferences, m_networkPreferences));
+    emit engineInitializationChanged();
+}
+void PlaybackService::setStartupHeld(bool held)
+{
+    m_startupHeld = held;
+    tryStartupAutoPlay();
+}
+void PlaybackService::tryStartupAutoPlay()
+{
+    if (m_startupHeld || !m_ready || !m_startupAutoPlayPending || m_restoring || !hasTrack() ||
+        m_closing)
+        return;
+    m_startupAutoPlayPending = false;
+    const auto sequence = m_sequence;
+    QTimer::singleShot(0, this, [this, sequence] {
+        if (!m_closing && !m_startupHeld && sequence == m_sequence)
+            play();
+    });
+}
+void PlaybackService::attachLibrary(UserPlaylistModel &library, PlaylistMutationService &mutations)
+{
+    if (m_libraryActions)
+        return;
+    m_libraryActions =
+        std::make_unique<PlaybackLibraryActions>(*this, m_api, library, mutations, this);
+    connect(m_libraryActions.get(), &PlaybackLibraryActions::favoriteWritten, m_personalFm.get(),
+            &PersonalFmController::favoriteFeedback);
+    emit changed();
+}
+PlaybackService::PlaybackService(ApiClient &api, QSettings &settings, QObject *parent,
+                                 const QString &storagePath, NetworkPreferences *network)
+    : QObject(parent), m_sleepTimer(this), m_api(api), m_settings(settings),
+      m_preferences(settings, this), m_enginePreferences(settings, this),
+      m_networkPreferences(network), m_membership(api, this),
+      m_engine(nullptr, engineStartupOptions(m_enginePreferences, network)),
+      m_spectrum(*this, m_engine), m_cloudSources(api, this),
+      m_source(api, m_membership, this, &m_cloudSources),
+      m_audioControls(m_engine, m_native, settings, this),
+      m_effectCatalog(api, m_audioControls, this), m_catalog(this), m_lyrics(this),
+      m_climax(api, this), m_listening(api, this), m_lyricAppearance(settings, this),
+      m_dynamicCover(api, this), m_lyricText(m_lyrics, m_native, settings, this),
+      m_lyricSource(api, settings, this)
+{
+    connect(&m_songCommands, &SongCommands::sharingChanged, this, &PlaybackService::sharingChanged);
+
+    connect(this, &PlaybackService::changed, this, &PlaybackService::publishProgressStatus);
+    connect(&m_listening, &ListeningReporter::drained, this,
+            &PlaybackService::listeningReportsDrained);
+    m_dynamicCover.setNetworkPreferences(network);
+    m_cast = std::make_unique<CastService>(m_native, *this, settings);
+    m_cast->setNetwork(network);
+    connect(m_cast.get(), &CastService::mediaRouteChanged, this,
+            &PlaybackService::mediaRouteChanged);
+    connect(m_cast.get(), &CastService::mediaEvent, this, &PlaybackService::consumeOutputEvent);
+    connect(m_cast.get(), &CastService::mediaSourceExpired, this, [this] {
+        if (m_closing || !hasTrack() || !m_cast->remoteMedia())
+            return;
+        if (m_castRefreshSequence == m_sequence) {
+            m_loading = m_playing = false;
+            m_error = tr("投放音源已过期，请重试");
+            m_failure->failed();
+            emit changed();
+            return;
+        }
+        m_castRefreshSequence = m_sequence;
+        refreshCurrentSource();
+    });
+    connect(this, &PlaybackService::changed, this, [this] { m_dynamicCover.setTrack(m_track); });
+    // The application owns network policy. Only an immutable deadline is copied
+    // to the audio actor; playback does not persist a second network preference.
+    if (network)
+        connect(network, &NetworkPreferences::timeoutsChanged, this, [this] {
+            if (m_ready && !m_closing)
+                m_engine.networkTimeout(m_networkPreferences->playerTimeoutSeconds());
+        });
+    connect(&m_membership, &MembershipService::changed, this, &PlaybackService::changed);
+    m_transition = std::make_unique<TrackTransitionController>(*this, api, settings);
+    m_recovery = std::make_unique<PlaybackRecoveryController>(*this);
+    m_failure = std::make_unique<PlaybackFailureController>(*this);
+    m_personalFm = std::make_unique<PersonalFmController>(*this, api, settings);
+    m_discoverQueue = std::make_unique<DiscoverQueueController>(*this, api);
+    m_listenTogether = std::make_unique<ListenTogetherController>(*this, api);
+    connect(this, &PlaybackService::changed, &m_sleepInhibitor, [this] {
+        m_sleepInhibitor.setRequired(!m_closing && m_autoplay && m_playing &&
+                                     m_preferences.preventSleep());
+    });
+    connect(&m_sleepInhibitor, &SystemSleepInhibitor::changed, this, &PlaybackService::changed);
+    if (network)
+        connect(&m_sleepInhibitor, &SystemSleepInhibitor::systemResumed, network,
+                &NetworkPreferences::recoverAfterWake);
+    connect(&m_enginePreferences, &PlayerEnginePreferences::stallTimeoutChanged, &m_engine,
+            &AudioEngine::stallTimeout);
+    connect(&m_source, &PlaybackSourceRequest::privilegesReady, this,
+            [this](const PlaybackTrack &track, const QJsonObject &privileges) {
+                if (m_closing || track.key() != m_track.key())
+                    return;
+                m_track = track;
+                m_privileges = privileges;
+                m_artwork.load(track.cover, m_sequence);
+                requestLyrics();
+                emit changed();
+            });
+    connect(&m_source, &PlaybackSourceRequest::resolved, this,
+            [this](const PlaybackTrack &track, const QJsonObject &privileges,
+                   const QJsonObject &source, bool fallback, const QString &resolvedQuality) {
+                if (m_closing || track.key() != m_track.key())
+                    return;
+                m_track = track;
+                m_privileges = privileges;
+                m_sourceKind = source.value("source_kind")
+                                   .toString(track.localPath.isEmpty() ? "catalog" : "local");
+                if (m_sourceKind != "mv") {
+                    m_sourceFailure.clear();
+                    m_mvFailure.clear();
+                }
+                if (m_sourceKind == "mv") {
+                    m_loaded = false;
+                    m_seamless = false;
+                    if (!m_mvRecovery) {
+                        m_resumePosition = -1;
+                        m_position = 0;
+                    }
+                    m_mvRecovery = false;
+                    m_duration = 0;
+                    m_audioTrack = 0;
+                    m_climax.clear();
+                    m_transition->clear();
+                    emit timelineReset();
+                    emit positionChanged();
+                }
+                m_resolvedQuality = resolvedQuality;
+                m_effectFallback = fallback;
+                m_effectError = fallback ? tr("所选音效暂未生效，继续使用原声") : QString();
+                m_pendingLoudness = {{"loudness", source.value("loudness")},
+                                     {"peak", source.value("peak")},
+                                     {"gain", source.value("gain")}};
+                m_urls.clear();
+                m_urlIndex = 0;
+                for (const auto &v : source.value("urls").toArray())
+                    if (v.isString() && !v.toString().isEmpty())
+                        m_urls.append(v.toString());
+                for (const auto &v : source.value("backup_urls").toArray())
+                    if (v.isString() && !v.toString().isEmpty() && !m_urls.contains(v.toString()))
+                        m_urls.append(v.toString());
+                if (!m_loaded)
+                    m_duration = qint64(source.value("duration_ms").toDouble());
+                loadNextUrl();
+                emit changed();
+            });
+    connect(&m_source, &PlaybackSourceRequest::failed, this, [this](const QString &message) {
+        if (m_closing)
+            return;
+        if (tryMvFallback(message))
+            return;
+        m_recovery->cancel();
+        m_loading = false;
+        m_playing = false;
+        if (!m_sourceFailure.isEmpty() && m_source.mvAttempted())
+            m_mvFailure = message;
+        m_error = m_sourceFailure.isEmpty() ? message : m_sourceFailure;
+        m_failure->failed();
+        emit changed();
+    });
+    connect(&m_lyricSource, &LyricSourceController::changed, this, [this] {
+        m_lyricState = m_lyricSource.state();
+        emit changed();
+    });
+    connect(&m_lyricSource, &LyricSourceController::activated, this,
+            [this](const QJsonObject &lyrics, const QString &trackKey) {
+                if (m_closing || trackKey != m_track.key())
+                    return;
+                if (!m_lyricText.replace(lyrics, trackKey))
+                    m_lyricState = "error";
+                m_lyricText.setPosition(m_position);
+                emit changed();
+            });
+    m_volume = qBound(0., settings.value("playback/volume", DefaultVolume).toDouble(), 150.);
+    m_unmutedVolume = m_volume > 0 ? m_volume : DefaultVolume;
+    m_speed = qBound(.1, settings.value("playback/speed", 1).toDouble(), 5.);
+    m_mode = PlayMode(qBound(0, settings.value("playback/mode", 0).toInt(), 3));
+    m_quality = m_preferences.defaultQuality();
+    m_startupAutoPlayPending = m_preferences.autoPlayOnLaunch();
+    connect(&m_cloudSources, &CloudAudioIndex::settled, this, &PlaybackService::changed);
+    connect(&m_preferences, &PlaybackPreferences::mvPolicyChanged, this, [this] {
+        if (!m_preferences.mvAudioFallbackEnabled()) {
+            m_source.disableMv();
+        }
+        emit changed();
+    });
+    connect(&m_preferences, &PlaybackPreferences::changed, this, [this] {
+        if (!m_preferences.viperQualityEnabled() && m_quality.startsWith("viper_"))
+            setQuality("hi_res");
+        emit changed();
+    });
+    connect(&m_preferences, &PlaybackPreferences::sourcePolicyChanged, this, [this] {
+        if (hasTrack() && m_track.localPath.isEmpty())
+            refreshCurrentSource();
+    });
+    const auto effect = settings.value("playback/songEffect", "none").toString();
+    if (QStringList{"none", "piano", "vocal", "accompaniment", "subwoofer", "ancient", "surnay",
+                    "dj"}
+            .contains(effect))
+        m_songEffect = effect;
+    connect(
+        &m_native, &NativeBridge::completed, this,
+        [this](quint64 id, quint64 revision, bool success, const QByteArray &bytes) {
+            if (id && id == m_embeddedRequest) {
+                m_embeddedRequest = 0;
+                if (!success || revision != m_sequence || m_closing)
+                    return;
+                const auto metadata = QJsonDocument::fromJson(bytes).object();
+                const auto title = metadata.value("title").toString();
+                const auto artist = metadata.value("artist").toString();
+                const auto album = metadata.value("album").toString();
+                const auto missing = [](const QString &value, const QStringList &unknown) {
+                    return value.trimmed().isEmpty() || unknown.contains(value.trimmed().toLower());
+                };
+                if (!title.isEmpty() &&
+                    (missing(m_track.title, {"未知歌曲", "unknown title", "unknown"}) ||
+                     (!m_track.localPath.isEmpty() &&
+                      m_track.title == QFileInfo(m_track.localPath).completeBaseName())))
+                    m_track.title = title;
+                if (!artist.isEmpty() && missing(m_track.artist, {"未知歌手", "未知艺术家",
+                                                                  "unknown artist", "unknown"}))
+                    m_track.artist = artist;
+                if (!album.isEmpty() &&
+                    missing(m_track.album, {"未知专辑", "unknown album", "unknown"}))
+                    m_track.album = album;
+                const auto coverFile = metadata.value("cover_file").toString();
+                if (m_track.cover.isEmpty() && !coverFile.isEmpty() &&
+                    QFileInfo(coverFile).fileName() == coverFile) {
+                    const auto path = m_embeddedDirectory.filePath(coverFile);
+                    if (QFileInfo::exists(path)) {
+                        m_embeddedCover = QUrl::fromLocalFile(path).toString();
+                        m_artwork.load(m_embeddedCover, m_sequence);
+                    }
+                }
+                m_lyricSource.updateEmbedded(m_track.key(), title, artist,
+                                             metadata.value("lyrics").toObject());
+                publishMedia();
+                emit changed();
+                return;
+            }
+            if (!m_trackProbe || id != m_trackProbe || revision != m_sequence || m_closing)
+                return;
+            m_trackProbe = 0;
+            m_audioTrack = effectAudioTrack(
+                success ? QJsonDocument::fromJson(bytes).array() : QJsonArray{}, m_songEffect);
+            if (m_seamless)
+                m_engine.switchSource(m_probedSource, m_audioSequence, m_audioTrack,
+                                      m_sourceRevision);
+            else
+                m_engine.load(m_probedSource, (m_audioSequence = ++m_audioSerial), m_audioTrack);
+            m_probedSource.clear();
+        });
+    m_mediaTimer.setInterval(1000);
+    connect(&m_mediaTimer, &QTimer::timeout, this, [this] {
+        m_sleepTimer.tick(hasTrack() ? m_track.key() : QString(), m_playing);
+        m_transition->tick();
+        if (m_ready && hasTrack())
+            m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
+    });
+    m_mediaTimer.start();
+    connect(&m_audioControls, &PlaybackAudioControls::selectedOutputDisconnected, this,
+            &PlaybackService::pause);
+    connect(&m_sleepTimer, &SleepTimer::actionRequested, this, [this](const QString &action) {
+        if (action == "pause") {
+            pause();
+            m_sleepTimer.executionFinished();
+        } else {
+            stop();
+            emit sleepActionRequested(action);
+        }
+    });
+    connect(&m_effectCatalog, &AudioEffectCatalog::closed, this, [this] {
+        if (++m_closedWorkers == (m_repository ? 5 : 4))
+            emit closed();
+    });
+    connect(&m_native, &NativeBridge::closed, this, [this] {
+        if (++m_closedWorkers == (m_repository ? 5 : 4))
+            emit closed();
+    });
+    m_revision = api.sessionRevision();
+    connect(&m_audioControls, &PlaybackAudioControls::importsClosed, this, [this] {
+        if (++m_closedWorkers == (m_repository ? 5 : 4))
+            emit closed();
+    });
+    m_account = api.currentAccountUserId();
+    connect(&m_artwork, &PlaybackArtwork::ready, this,
+            [this](quint64 sequence, const QByteArray &png, const QColor &color) {
+                if (m_closing || sequence != m_sequence)
+                    return;
+                m_coverColor = color;
+                m_coverPng = png;
+                publishMedia();
+                emit changed();
+            });
+    m_listenTick.start();
+    m_saveTimer.setSingleShot(true);
+    m_saveTimer.setInterval(750);
+    connect(&m_saveTimer, &QTimer::timeout, this, &PlaybackService::persist);
+    connect(&m_catalog, &PlaybackQueueCatalog::changed, this, [this] {
+        if (!m_restoring && !m_closing) {
+            if (m_queueRestorePending && !m_catalog.snapshot().isEmpty())
+                m_queueRestorePending = false;
+            m_saveTimer.start();
+        }
+        m_transition->queueChanged();
+        emit changed();
+    });
+    const auto bindQueue = [this](PlaybackQueueModel *model) {
+        connect(model, &PlaybackQueueModel::currentRemoved, this, [this, model] {
+            if (m_closing || m_restoring || model != queue())
+                return;
+            if (m_personalFm->active())
+                m_personalFm->abandonQueue();
+            stop();
+            m_track = {};
+            m_sourceKind = "catalog";
+            m_sourcePreference.clear();
+            m_sourceFailure.clear();
+            m_mvFailure.clear();
+            emit changed();
+        });
+    };
+    connect(&m_catalog, &PlaybackQueueCatalog::modelAdded, this, bindQueue);
+    bindQueue(queue());
+    if (!storagePath.isEmpty()) {
+        m_repository = std::make_unique<PlaybackRepository>(storagePath);
+        m_listenTogether->attachRepository(*m_repository);
+        connect(m_repository.get(), &PlaybackRepository::loaded, this,
+                [this](quint64 account, quint64 revision, const PlaybackQueueStates &states,
+                       const QString &active, const QString &lastLocal) {
+                    if (m_closing || !m_queueRestorePending || revision != m_restoreSequence ||
+                        account != PlaybackRepository::SharedQueueScope ||
+                        m_sequence != m_restoreSequence)
+                        return;
+                    m_queueRestorePending = false;
+                    m_restoring = true;
+                    m_catalog.restore(states, active, lastLocal, true);
+                    m_queueTitle = m_catalog.activeTitle();
+                    m_sourceKey = m_catalog.activeKey();
+                    m_track = {};
+                    if (const auto *track = queue()->at(queue()->currentIndex())) {
+                        m_track = *track;
+                        m_duration = qint64(track->durationMs);
+                    }
+                    m_restoring = false;
+                    if (std::any_of(states.cbegin(), states.cend(), [](const auto &state) {
+                            return state.key.startsWith("fm/") ||
+                                   state.key == "queue:home-discover" ||
+                                   state.key == "queue:listen-together";
+                        }))
+                        m_saveTimer.start();
+                    m_loaded = false;
+                    emit changed();
+                    tryStartupAutoPlay();
+                });
+        connect(m_repository.get(), &PlaybackRepository::failed, this, [](const QString &message) {
+            qWarning().noquote() << "Playback storage:" << message;
+        });
+        connect(m_repository.get(), &PlaybackRepository::historyLoaded, this,
+                [this](quint64 account, quint64 revision, const QJsonArray &entries) {
+                    if (m_closing || account != m_account || revision != m_api.sessionRevision())
+                        return;
+                    emit historyLoaded(entries);
+                });
+        connect(m_repository.get(), &PlaybackRepository::historyFailed, this,
+                &PlaybackService::historyFailed);
+        connect(m_repository.get(), &PlaybackRepository::historyChanged, this,
+                [this](quint64 account) {
+                    if (!m_closing && account == m_account)
+                        requestHistory();
+                });
+        connect(m_repository.get(), &PlaybackRepository::closed, this, [this] {
+            if (++m_closedWorkers == 5)
+                emit closed();
+        });
+        m_restoreSequence = m_sequence;
+        m_queueRestorePending = true;
+        m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence);
+    }
+    connect(&api, &ApiClient::sessionChanged, this, [this] {
+        const bool restorePending = m_queueRestorePending && m_sequence == m_restoreSequence;
+        const auto states = m_catalog.snapshot();
+        const auto active = m_catalog.activeKey();
+        const auto lastLocal = m_catalog.lastLocalKey();
+        finishHistory();
+        persist();
+        m_saveTimer.stop();
+        invalidate();
+        m_engine.command(AudioEngine::Stop);
+        m_track = {};
+        m_sourceKind = "catalog";
+        m_sourcePreference.clear();
+        m_sourceFailure.clear();
+        m_mvFailure.clear();
+        m_mvRecovery = false;
+        m_coverColor = {};
+        m_coverPng.clear();
+        m_privileges = {};
+        m_lyricState = "idle";
+        m_loaded = false;
+        m_restoring = true;
+        m_catalog.restore(states, active, lastLocal, true);
+        m_queueTitle = m_catalog.activeTitle();
+        m_sourceKey = m_catalog.activeKey();
+        m_restoring = false;
+        m_lyricText.clear();
+        m_position = m_duration = 0;
+        if (const auto *track = queue()->at(queue()->currentIndex())) {
+            m_track = *track;
+            m_duration = qint64(track->durationMs);
+        }
+        m_error.clear();
+        m_playing = m_loading = false;
+        publishMedia();
+        m_revision = m_api.sessionRevision();
+        m_account = m_api.currentAccountUserId();
+        m_restoreSequence = m_sequence;
+        m_queueRestorePending = restorePending;
+        if (m_repository && restorePending)
+            m_repository->load(PlaybackRepository::SharedQueueScope, m_restoreSequence);
+        else
+            persist();
+        // Account-owned history is never shared across sessions.
+        emit historyLoaded({});
+        requestHistory();
+        emit changed();
+        emit timelineReset();
+        emit positionChanged();
+    });
+    connect(&m_engine, &AudioEngine::eventReceived, this, &PlaybackService::onEvent);
+    connect(&m_engine, &AudioEngine::closed, this, [this] {
+        if (++m_closedWorkers == (m_repository ? 5 : 4))
+            emit closed();
+    });
+}
+PlaybackService::~PlaybackService()
+{
+    shutdown();
+}
+void PlaybackService::publishProgressStatus()
+{
+    const auto reason = progressBusyReason();
+    if (reason != m_publishedProgress) {
+        m_publishedProgress = reason;
+        emit progressBusyReasonChanged();
+    }
+}
+void PlaybackService::invalidate()
+{
+    m_climax.clear();
+    m_progress.reset();
+    publishProgressStatus();
+    m_resolvedQuality.clear();
+    m_failure->cancel();
+    m_recovery->cancel();
+    m_transition->clear();
+    ++m_sequence;
+    m_audioSequence = ++m_audioSerial;
+    ++m_sourceRevision;
+    m_engine.cancelSourceReplacement();
+    m_artwork.cancel();
+    m_embeddedCover.clear();
+    m_lyricSource.clear();
+    m_source.cancel();
+    m_urls.clear();
+    m_urlIndex = 0;
+    cancelTrackProbe();
+    if (const auto embedded = std::exchange(m_embeddedRequest, 0))
+        m_native.cancel(embedded);
+    m_probedSource.clear();
+    m_audioTrack = 0;
+}
+void PlaybackService::playTracks(const PlaybackTracks &tracks, int index, const QString &title,
+                                 const QString &sourceKey)
+{
+    if (m_closing || index < 0 || index >= tracks.size())
+        return;
+    // Replaying the same source keeps its queue identity/order. Browsing alone
+    // never replaces the active queue; only this explicit play command does.
+    finishHistory();
+    m_sourceKey = sourceKey;
+    m_queueTitle = title;
+    m_catalog.activate(sourceKey, title, tracks, index);
+    playIndex(queue()->currentIndex());
+}
+void PlaybackService::playFromSelection(const PlaybackTracks &tracks, int index,
+                                        const QString &title, const QString &sourceKey,
+                                        bool selectedSong)
+{
+    if (selectedSong && m_preferences.queueMode() == "single" && index >= 0 &&
+        index < tracks.size()) {
+        queueAndPlayTrack(tracks[index], title, sourceKey);
+    } else
+        playTracks(tracks, index, title, sourceKey);
+}
+void PlaybackService::queueAndPlayTrack(const PlaybackTrack &track, const QString &title,
+                                        const QString &sourceKey)
+{
+    if (m_closing || !track.playable())
+        return;
+    auto *existing = m_catalog.modelForKey(sourceKey);
+    auto merged = existing ? existing->tracks() : PlaybackTracks{};
+    int target = -1;
+    for (int i = 0; i < merged.size(); ++i)
+        if ((!track.id.isEmpty() && merged[i].id == track.id) || merged[i].key() == track.key() ||
+            (!track.hash.isEmpty() &&
+             merged[i].hash.compare(track.hash, Qt::CaseInsensitive) == 0)) {
+            target = i;
+            break;
+        }
+    if (target < 0) {
+        target = merged.size();
+        merged.append(track);
+    }
+    const bool current =
+        hasTrack() && (!track.id.isEmpty() ? m_track.id == track.id : m_track.key() == track.key());
+    if (current) {
+        // Adopt context without restarting or pausing current audio.
+        // Row play/pause toggles use a separate command.
+        m_sourceKey = sourceKey;
+        m_queueTitle = title;
+        m_catalog.activate(sourceKey, title, merged, target);
+        emit changed();
+        if (!m_playing)
+            play();
+    } else
+        playTracks(merged, target, title, sourceKey);
+}
+void PlaybackService::appendTracks(const PlaybackTracks &tracks, bool next)
+{
+    appendTracksImpl(tracks, next, false);
+}
+void PlaybackService::enqueueTracks(const PlaybackTracks &tracks, bool cut)
+{
+    appendTracksImpl(tracks, true, !cut);
+}
+void PlaybackService::appendTracksImpl(const PlaybackTracks &tracks, bool next, bool sequential)
+{
+    auto *target = queue();
+    if (m_personalFm->active() || m_sourceKey == "queue:home-discover" ||
+        m_sourceKey == "queue:listen-together") {
+        target = m_catalog.modelForKey(m_catalog.lastLocalKey());
+        if (!target)
+            target = m_catalog.modelForKey("default");
+    }
+    if (target)
+        target->append(tracks, next, m_track.id.isEmpty() ? m_track.key() : m_track.id, sequential);
+    emit changed();
+}
+void PlaybackService::playIndex(int index)
+{
+    m_listenTogether->localTrackRequested();
+    startIndex(index, false);
+}
+void PlaybackService::startIndex(int index, bool preserveFailureChain)
+{
+    const auto *track = queue()->at(index);
+    if (m_closing || !track)
+        return;
+    if (m_personalFm->active()) {
+        m_personalFm->startCandidate(*track, preserveFailureChain);
+        return;
+    }
+    startTrack(*track, index, preserveFailureChain);
+}
+void PlaybackService::startTrack(const PlaybackTrack &snapshot, int index,
+                                 bool preserveFailureChain)
+{
+    m_failure->started(preserveFailureChain);
+    finishHistory();
+    if (snapshot.key() != m_track.key())
+        m_quality = m_preferences.defaultQuality();
+    m_startupAutoPlayPending = false;
+    invalidate();
+    m_engine.command(AudioEngine::Stop);
+    if (index >= 0)
+        queue()->setCurrent(index);
+    m_mvRecovery = false;
+    m_sourcePreference.clear();
+    m_sourceFailure.clear();
+    m_mvFailure.clear();
+    m_sourceKind = "catalog";
+    m_track = snapshot;
+    queue()->consumePlayedPriority(snapshot.id.isEmpty() ? snapshot.key() : snapshot.id);
+    m_pendingLoudness = {};
+    m_audioControls.setTrackLoudness({});
+    m_coverColor = {};
+    m_coverPng.clear();
+    m_artwork.load(m_track.cover, m_sequence);
+    m_loaded = false;
+    m_privileges = {};
+    m_seamless = false;
+    m_effectFallback = false;
+    m_appliedEffect = "none";
+    m_effectError.clear();
+    m_resumePosition = -1;
+    m_position = 0;
+    m_duration = qint64(snapshot.durationMs);
+    m_error.clear();
+    m_playing = false;
+    publishMedia();
+    m_loading = true;
+    m_autoplay = true;
+    m_lyricText.clear();
+    m_lyricState = "loading";
+    m_revision = m_api.sessionRevision();
+    emit changed();
+    emit timelineReset();
+    emit positionChanged();
+    if (m_ready)
+        resolve();
+}
+void PlaybackService::resolve()
+{
+    if (!hasTrack() || m_closing)
+        return;
+    if (!m_track.localPath.isEmpty())
+        requestLyrics();
+    m_source.resolve(m_track, apiQuality(), apiEffect(), {}, m_preferences.compatibilityMode(),
+                     m_preferences.viperQualityEnabled(),
+                     m_listenTogether->roomSourceAllowed(m_track) ? m_listenTogether->roomId()
+                                                                  : QString(),
+                     m_sourcePreference, m_audioControls.volumeNormalization());
+}
+void PlaybackService::loadNextUrl()
+{
+    if (m_urlIndex >= m_urls.size()) {
+        if (recoverSource(m_error.isEmpty() ? tr("无法加载歌曲音频") : m_error))
+            return;
+        m_loading = false;
+        if (!m_seamless)
+            m_playing = false;
+        if (m_error.isEmpty())
+            m_error = tr("无法加载歌曲音频");
+        m_failure->failed();
+        emit changed();
+        return;
+    }
+    const auto source = m_urls[m_urlIndex++];
+    m_cast->prepareTransportCommand();
+    if (m_cast->remoteMedia()) {
+        m_progress.reset();
+        publishProgressStatus();
+        m_cast->loadMedia(source, m_track, (m_audioSequence = ++m_audioSerial));
+        return;
+    }
+    if (!m_audioTrack && !m_effectFallback &&
+        (m_songEffect == "vocal" || m_songEffect == "accompaniment") &&
+        QUrl(source).path().endsWith(".mkv", Qt::CaseInsensitive)) {
+        m_probedSource = source;
+        m_trackProbe = m_native.submit(NativeBridge::AudioTracks, source, m_sequence);
+        if (m_trackProbe)
+            return;
+        m_audioTrack = m_songEffect == "vocal" ? 2 : 1;
+    }
+    m_progress.reset();
+    publishProgressStatus();
+    if (m_seamless)
+        m_engine.switchSource(source, m_audioSequence, m_audioTrack, ++m_sourceRevision);
+    else
+        m_engine.load(source, (m_audioSequence = ++m_audioSerial), m_audioTrack);
+}
+void PlaybackService::ensureLyrics()
+{
+    if (m_closing || !hasTrack() || m_lyricState != "idle" || m_lyrics.rowCount())
+        return;
+    // load() emits changed while resetting its previous source; leave idle first
+    // so presentation observers cannot start a second request reentrantly.
+    m_lyricState = "loading";
+    requestLyrics();
+}
+void PlaybackService::requestLyrics()
+{
+    m_lyricSource.load(m_track);
+    m_lyricSource.setDuration(m_duration);
+}
+void PlaybackService::requestEmbeddedMetadata()
+{
+    if (m_embeddedRequest)
+        m_native.cancel(m_embeddedRequest);
+    m_embeddedRequest =
+        m_native.submit(NativeBridge::EmbeddedMetadata,
+                        QJsonObject{{"seq", qint64(m_audioSequence)},
+                                    {"cover_cache_dir", m_embeddedDirectory.path()}},
+                        m_sequence);
+}
+void PlaybackService::onEvent(const QJsonObject &event)
+{
+    if (m_closing)
+        return;
+    m_audioControls.handleEvent(event);
+    const auto kind = event.value("event").toString();
+    if (m_cast->remoteMedia() && kind != "ready" && kind != "system-command" &&
+        kind != "media-error")
+        return;
+    consumeOutputEvent(event);
+}
+void PlaybackService::mediaRouteChanged()
+{
+    if (m_closing)
+        return;
+    if (!hasTrack()) {
+        emit changed();
+        return;
+    }
+    m_transition->clear();
+    m_recovery->cancel();
+    cancelTrackProbe();
+    const bool autoplay = m_playing || m_loading && m_autoplay;
+    m_resumePosition = m_position;
+    m_engine.command(AudioEngine::Pause);
+    m_playing = false;
+    m_loaded = false;
+    m_loading = true;
+    m_autoplay = autoplay;
+    m_seamless = false;
+    m_error.clear();
+    emit changed();
+    if (!m_urls.isEmpty()) {
+        m_urlIndex = qMax(0, m_urlIndex - 1);
+        loadNextUrl();
+    } else if (m_ready)
+        resolve();
+}
+void PlaybackService::consumeOutputEvent(const QJsonObject &event)
+{
+    if (m_closing)
+        return;
+    const auto kind = event.value("event").toString();
+    if (kind == "ready") {
+        m_ready = true;
+        m_initializationError.clear();
+        emit engineInitializationChanged();
+        // Queue this before transition setup, restored queues or pending loads.
+        // Changes made while native initialization was pending are read here.
+        m_engine.networkTimeout(m_networkPreferences ? m_networkPreferences->playerTimeoutSeconds()
+                                                     : 60);
+        m_engine.command(AudioEngine::Volume, localVolume());
+        m_engine.command(AudioEngine::Speed, m_speed);
+        m_audioControls.initialize();
+        m_transition->initialize();
+        tryStartupAutoPlay();
+        if (m_loading)
+            resolve();
+        return;
+    }
+    if (kind == "system-command") {
+        const auto c = event.value("command").toString();
+        if (c == "Play")
+            play();
+        else if (c == "Pause")
+            pause();
+        else if (c == "Stop")
+            stop();
+        else if (c == "NextSong")
+            next();
+        else if (c == "PreviousSong")
+            previous();
+        else if (c == "Seek")
+            seek(qint64(event.value("position_ms").toDouble()));
+        else if (c == "SeekForward")
+            seek(m_position + qint64(event.value("offset_ms").toDouble(10000)));
+        else if (c == "SeekBackward")
+            seek(m_position - qint64(event.value("offset_ms").toDouble(10000)));
+        return;
+    }
+    if (kind == "media-error") {
+        qWarning().noquote() << "System media:" << event.value("message").toString();
+        return;
+    }
+    if (!m_cast->remoteMedia() && m_transition->handleEvent(event))
+        return;
+    const auto seq = event.value("track_seq");
+    if (!seq.isNull() && !seq.isUndefined() && quint64(seq.toDouble()) != m_audioSequence)
+        return;
+    if (!event.value("source_revision").isNull() && !event.value("source_revision").isUndefined() &&
+        quint64(event.value("source_revision").toInteger()) != m_sourceRevision)
+        return;
+    if (!m_cast->remoteMedia() && kind != "state-change" && m_recovery->handleEvent(event))
+        return;
+    // Recovery may reject old output positions; do not let those clear busy.
+    if (kind == "time-update" || kind == "seeked") {
+        if (!m_cast->remoteMedia() &&
+            !m_recovery->acceptsPosition(qint64(event.value("time").toDouble() * 1000)))
+            return;
+    }
+    m_progress.observe(event);
+    publishProgressStatus();
+    if (kind == "source-switched" ||
+        (kind == "file-loaded" && quint64(event.value("seq").toDouble()) == m_audioSequence))
+        requestEmbeddedMetadata();
+    if (kind == "source-switched") {
+        m_progress.reset();
+        m_audioControls.setTrackLoudness(m_pendingLoudness);
+        m_loading = false;
+        m_loaded = true;
+        m_appliedEffect = m_effectFallback ? QString("none") : m_songEffect;
+        m_seamless = false;
+        m_position = qint64(event.value("time").toDouble() * 1000);
+        m_duration = qint64(event.value("duration").toDouble() * 1000);
+        m_error.clear();
+        publishMedia();
+        m_lyricText.setPosition(m_position);
+        if (m_sourceKind == "mv")
+            m_climax.clear();
+        else
+            m_climax.load(m_track, m_duration);
+        m_lyricSource.setDuration(m_duration);
+        emit changed();
+        emit timelineReset();
+        emit positionChanged();
+    } else if (kind == "file-loaded") {
+        if (quint64(event.value("seq").toDouble()) != m_audioSequence)
+            return;
+        m_audioControls.setTrackLoudness(m_pendingLoudness);
+        m_loading = false;
+        m_loaded = true;
+        m_appliedEffect = m_effectFallback ? QString("none") : m_songEffect;
+        m_error.clear();
+        publishMedia();
+        if (m_resumePosition >= 0) {
+            if (m_cast->remoteMedia())
+                m_cast->seek(qBound<qint64>(0, m_resumePosition, m_duration));
+            else
+                m_engine.command(AudioEngine::Seek,
+                                 double(qBound<qint64>(0, m_resumePosition, m_duration)) / 1000.);
+            m_resumePosition = -1;
+        }
+        if (m_autoplay) {
+            if (m_cast->remoteMedia())
+                m_cast->playMedia();
+            else if (m_preferences.volumeFade())
+                m_engine.playFaded(localVolume(), m_preferences.volumeFadeMs());
+            else
+                m_engine.command(AudioEngine::Play);
+        }
+        if (m_sourceKind == "mv")
+            m_climax.clear();
+        else
+            m_climax.load(m_track, m_duration);
+        m_lyricSource.setDuration(m_duration);
+        m_listenTogether->nativeTrackReady();
+        emit changed();
+    } else if (kind == "duration-change") {
+        m_duration = qint64(event.value("duration").toDouble() * 1000);
+        m_climax.setDuration(m_duration);
+        m_lyricSource.setDuration(m_duration);
+        emit changed();
+    } else if (kind == "time-update" || kind == "seeked") {
+        const auto position = qint64(event.value("time").toDouble() * 1000);
+        if (kind == "seeked")
+            m_listening.resetPosition();
+        m_listening.tick(m_track.key(), m_track.songId, m_track.localPath.isEmpty(),
+                         m_playing && !m_loading && progressBusyReason() == ProgressReady, position,
+                         speed());
+        const auto elapsed = m_listenTick.restart();
+        if (m_playing && elapsed > 0 && elapsed < 2000)
+            m_listenedMs += elapsed;
+        m_position = position;
+        if (kind == "seeked")
+            m_listenTogether->nativeSeekCompleted();
+        m_lyricText.setPosition(m_position);
+        if (kind == "seeked")
+            emit timelineReset();
+        emit positionChanged();
+    } else if (kind == "state-change") {
+        m_listening.resetPosition();
+        const auto s = event.value("state").toObject();
+        m_playing = s.value("playing").toBool() && !s.value("paused").toBool();
+        if (m_playing)
+            m_failure->succeeded();
+        if (!m_cast->remoteMedia())
+            m_recovery->handleEvent(event);
+        m_listenTick.restart();
+        m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
+        emit changed();
+    } else if (kind == "playback-end") {
+        if (event.value("reason").toString() != "eof")
+            return;
+        m_listening.flush(true);
+        m_playing = false;
+        if (!m_sleepTimer.trackEnded())
+            next(true);
+    } else if (kind == "error") {
+        m_listening.flush();
+        if (!m_ready) {
+            m_initializationError = event.value("message").toString();
+            emit engineInitializationChanged();
+        }
+        m_progress.reset();
+        m_error = event.value("message").toString();
+        if (!m_seamless)
+            m_playing = false;
+        const bool mediaFailure = PlaybackSourceRequest::mediaError(event);
+        if (mediaFailure && !m_urls.isEmpty() && m_urlIndex < m_urls.size()) {
+            m_loaded = false;
+            m_seamless = false;
+            m_loading = true;
+            m_resumePosition = m_sourceKind == "mv" ? -1 : m_position;
+            loadNextUrl();
+        } else if (mediaFailure && recoverSource(m_error)) {
+            emit changed();
+        } else {
+            m_loading = false;
+            m_failure->failed();
+            emit changed();
+        }
+    }
+}
+void PlaybackService::toggle()
+{
+    m_failure->cancel(true);
+    if (m_loading) {
+        m_autoplay = !m_autoplay;
+        if (m_autoplay)
+            m_listenTogether->localPlayRequested();
+        else
+            m_listenTogether->localPauseRequested();
+        if (!m_autoplay)
+            m_engine.command(AudioEngine::Pause);
+    } else if (m_playing)
+        pause();
+    else
+        play();
+}
+void PlaybackService::play()
+{
+    m_listenTogether->localPlayRequested();
+    m_cast->prepareTransportCommand();
+    m_failure->cancel(true);
+    if (!hasTrack()) {
+        m_sourceKey = m_catalog.activeKey();
+        m_queueTitle = m_catalog.activeTitle();
+        if (m_personalFm->active())
+            m_personalFm->play();
+        else if (queue()->rowCount())
+            playIndex(m_mode == Shuffle ? QRandomGenerator::global()->bounded(queue()->rowCount())
+                                        : 0);
+        return;
+    }
+    m_autoplay = true;
+    if (m_loading)
+        return;
+    if (!m_loaded || !m_error.isEmpty()) {
+        if (m_personalFm->active() && m_personalFm->m_resetPending) {
+            m_personalFm->play();
+            return;
+        }
+        retry();
+        return;
+    }
+    if (m_cast->remoteMedia()) {
+        m_cast->playMedia();
+        return;
+    }
+    m_recovery->resumeRequested();
+    m_engine.command(AudioEngine::Play);
+}
+void PlaybackService::pause()
+{
+    m_listenTogether->localPauseRequested();
+    m_discoverQueue->cancelWait();
+    m_cast->prepareTransportCommand();
+    m_failure->cancel(true);
+    m_recovery->cancel();
+    m_listening.resetPosition();
+    m_autoplay = false;
+    m_sleepInhibitor.setRequired(false);
+    if (m_cast->remoteMedia()) {
+        m_cast->pauseMedia();
+        return;
+    }
+    m_engine.command(AudioEngine::Pause);
+}
+void PlaybackService::stop()
+{
+    m_discoverQueue->cancelWait();
+    if (m_cast->remoteMedia())
+        m_cast->stopMedia();
+    finishHistory();
+    m_loaded = false;
+    invalidate();
+    m_autoplay = false;
+    m_playing = m_loading = false;
+    m_position = 0;
+    m_engine.command(AudioEngine::Stop);
+    emit changed();
+    emit timelineReset();
+    emit positionChanged();
+}
+void PlaybackService::seek(qint64 position)
+{
+    m_discoverQueue->cancelWait();
+    m_listening.resetPosition();
+    if (!hasTrack() || m_loading)
+        return;
+    m_listenTogether->localSeekRequested(position);
+    m_transition->clear();
+    m_cast->seek(qBound<qint64>(0, position, m_duration));
+    if (m_cast->remoteMedia())
+        return;
+    m_engine.command(AudioEngine::Seek, double(qBound<qint64>(0, position, m_duration)) / 1000.);
+}
+void PlaybackService::previous()
+{
+    const auto index = m_transition->previousIndex();
+    if (index >= 0)
+        playIndex(index);
+}
+void PlaybackService::next(bool automatic)
+{
+    if (automatic && m_listenTogether->suppressAutomaticNext())
+        return;
+    if (!hasTrack())
+        return;
+    if (automatic)
+        m_listenTogether->nativeTrackEnded();
+    else
+        m_listenTogether->localTrackRequested();
+    // Manual clicks advance synchronously; only automatic EOF waits
+    // for the prepared native transition to commit.
+    if (automatic && m_transition->commit(true))
+        return;
+    if (m_personalFm->active()) {
+        m_personalFm->advance(automatic);
+        return;
+    }
+    const int next = m_transition->nextIndex(automatic);
+    if (next < 0 && m_sourceKey == DiscoverQueueController::queueKey()) {
+        m_discoverQueue->advance(automatic);
+        return;
+    }
+    m_transition->consumeNext(next, automatic);
+    if (next >= 0) {
+        if (automatic)
+            startIndex(next, false);
+        else
+            playIndex(next);
+    } else if (queue()->rowCount() &&
+               (m_mode == Sequential || m_sourceKey == "queue:home-discover"))
+        pause();
+}
+void PlaybackService::toggleMute()
+{
+    setVolume(m_volume == 0 ? m_unmutedVolume : 0);
+}
+ApiClient::PlaybackQuality PlaybackService::apiQuality() const
+{
+    return ApiClient::PlaybackQuality(QStringList{"standard", "higher", "flac", "hi_res",
+                                                  "viper_tape", "viper_clear", "viper_atmos"}
+                                          .indexOf(m_quality));
+}
+QVariantList PlaybackService::qualities() const
+{
+    const QStringList keys{"standard",   "higher",      "flac",       "hi_res",
+                           "viper_tape", "viper_clear", "viper_atmos"};
+    const QStringList labels{tr("标准"),     tr("高品质"),   tr("无损"),      "Hi-Res",
+                             tr("蝰蛇母带"), tr("蝰蛇超清"), tr("蝰蛇全景声")};
+    const QStringList tags{"SD", "HQ", "SQ", "HR", "VPT", "VPC", "VPA"};
+    const QStringList colors{"#64748B", "#8B5CF6", "#2563EB", "#F59E0B",
+                             "#E11D48", "#0891B2", "#7C3AED"};
+    QVariantList result;
+    for (int i = 0; i < keys.size(); ++i) {
+        if (m_track.catalogMetadata.value("source_kind").toString() == "cloud" &&
+            m_track.catalogMetadata.value("cloud_source")
+                .toObject()
+                .value("hash_std")
+                .toString()
+                .isEmpty())
+            continue;
+        if (!m_preferences.viperQualityEnabled() && keys[i].startsWith("viper_"))
+            continue;
+        const auto file =
+            PlaybackSourcePlan::qualityVariant(ApiClient::PlaybackQuality(i), m_privileges);
+        const bool exists = !file.isEmpty();
+        auto size = file.value("size_bytes");
+        if (i <= 1) {
+            const auto ogg = m_privileges.value(i == 0 ? "ogg_standard" : "ogg_high").toObject();
+            if (ogg.value("size_bytes").isDouble())
+                size = ogg.value("size_bytes");
+        }
+        auto reason = PlaybackSourcePlan::qualityAccessReason(
+            ApiClient::PlaybackQuality(i), m_membership.facts(),
+            m_preferences.viperQualityEnabled(), m_privileges);
+        const bool enabled = hasTrack() && m_track.localPath.isEmpty() && reason.isEmpty();
+        result.append(
+            QVariantMap{{"value", keys[i]},
+                        {"label", labels[i]},
+                        {"tag", tags[i]},
+                        {"color", colors[i]},
+                        {"enabled", enabled},
+                        {"detail", !reason.isEmpty() ? reason
+                                   : exists && size.isDouble()
+                                       ? tr("%1 MB").arg(size.toDouble() / 1024 / 1024, 0, 'f', 1)
+                                       : QString()}});
+    }
+    const auto cloud = m_cloudSources.source(m_track);
+    if (!cloud.isEmpty())
+        result.prepend(QVariantMap{
+            {"value", "cloud"},
+            {"label", tr("云盘文件")},
+            {"tag", "CLD"},
+            {"color", "#0EA5E9"},
+            {"enabled", hasTrack() && !m_loading},
+            {"detail",
+             cloud.value("size_bytes").isDouble()
+                 ? tr("%1 MB").arg(double(cloud.value("size_bytes").toInteger()) / 1024 / 1024, 0,
+                                   'f', 1)
+                 : QString()}});
+    return result;
+}
+void PlaybackService::setVolume(double value)
+{
+    if (!std::isfinite(value))
+        return;
+    value = qBound(0., value, m_remoteVolume ? 100. : 150.);
+    if (m_volume == value)
+        return;
+    if (value > 0)
+        m_unmutedVolume = value;
+    m_volume = value;
+    if (!m_remoteVolume) {
+        m_settings.setValue("playback/volume", value);
+        if (m_ready)
+            m_engine.command(AudioEngine::Volume, value);
+    }
+    emit changed();
+}
+void PlaybackService::applyOutputVolume(double volume)
+{
+    if (!m_remoteVolume) {
+        m_localVolume = m_volume;
+        m_localUnmutedVolume = m_unmutedVolume;
+        m_remoteVolume = true;
+    }
+    setVolume(volume);
+}
+void PlaybackService::restoreLocalVolume()
+{
+    if (!m_remoteVolume)
+        return;
+    m_remoteVolume = false;
+    setVolume(m_localVolume);
+    m_unmutedVolume = m_localUnmutedVolume;
+}
+void PlaybackService::setSpeed(double value)
+{
+    if (m_cast->remoteMedia())
+        return;
+    if (!std::isfinite(value))
+        return;
+    value = qBound(.1, value, 5.);
+    if (m_speed == value)
+        return;
+    m_transition->clear();
+    m_speed = value;
+    m_settings.setValue("playback/speed", value);
+    if (m_ready)
+        m_engine.command(AudioEngine::Speed, value);
+    emit changed();
+}
+void PlaybackService::setPlayMode(PlayMode mode)
+{
+    if (mode < ListLoop || mode > Sequential)
+        return;
+    m_transition->clear();
+    m_mode = mode;
+    m_settings.setValue("playback/mode", int(mode));
+    emit changed();
+}
+void PlaybackService::cycleMode()
+{
+    setPlayMode(PlayMode((int(m_mode) + 1) % 4));
+}
+void PlaybackService::cancelTrackProbe()
+{
+    if (const auto probe = std::exchange(m_trackProbe, 0))
+        m_native.cancel(probe);
+}
+void PlaybackService::refreshCurrentSource()
+{
+    if (!hasTrack() || m_closing)
+        return;
+    // Keep catalog/lyrics identity stable; retire replacement work immediately,
+    // before awaiting a new URL. A separate revision rejects old switch acks.
+    m_transition->clear();
+    ++m_sourceRevision;
+    m_engine.cancelSourceReplacement();
+    m_source.cancel();
+    m_urls.clear();
+    m_urlIndex = 0;
+    cancelTrackProbe();
+    m_audioTrack = 0;
+    m_probedSource.clear();
+    m_effectFallback = false;
+    m_effectError.clear();
+    m_error.clear();
+    m_mvRecovery = false;
+    m_sourceFailure.clear();
+    m_mvFailure.clear();
+    // EchoMusic refreshCurrentTrack only swaps seamlessly while playing.
+    // Paused refresh reloads and restores position without resuming transport.
+    // An MV edition may have a different timeline/codec. Load a normal source
+    // through the regular transport, then restore position; a same-song PCM
+    // replacement can retain the MV when its hand-off buffer is unavailable.
+    m_seamless = m_loaded && m_playing && !m_cast->remoteMedia() && m_sourceKind != "mv";
+    m_loading = true;
+    if (!m_seamless) {
+        m_resumePosition = m_position;
+        m_autoplay = m_playing || m_autoplay;
+    }
+    m_source.resolve(m_track, apiQuality(), apiEffect(), m_privileges,
+                     m_preferences.compatibilityMode(), m_preferences.viperQualityEnabled(),
+                     m_listenTogether->roomSourceAllowed(m_track) ? m_listenTogether->roomId()
+                                                                  : QString(),
+                     m_sourcePreference, m_audioControls.volumeNormalization());
+    emit changed();
+}
+ApiClient::SoundEffect PlaybackService::apiEffect() const
+{
+    static const QStringList effects{"none",      "piano",   "vocal",  "accompaniment",
+                                     "subwoofer", "ancient", "surnay", "dj"};
+    return ApiClient::SoundEffect(qMax(0, effects.indexOf(m_songEffect)));
+}
+void PlaybackService::setSongEffect(const QString &effect)
+{
+    if (m_closing || effect == m_songEffect ||
+        !QStringList{"none", "piano", "vocal", "accompaniment", "subwoofer", "ancient", "surnay",
+                     "dj"}
+             .contains(effect))
+        return;
+    m_songEffect = effect;
+    m_settings.setValue("playback/songEffect", effect);
+    if (hasTrack() && m_track.localPath.isEmpty()) {
+        refreshCurrentSource();
+    }
+    emit changed();
+}
+void PlaybackService::setQuality(const QString &quality)
+{
+    if (quality == "cloud") {
+        if (!hasTrack() || m_cloudSources.source(m_track).isEmpty())
+            return;
+        m_sourcePreference = "cloud";
+        refreshCurrentSource();
+        return;
+    }
+    if (!QStringList{"standard", "higher", "flac", "hi_res", "viper_tape", "viper_clear",
+                     "viper_atmos"}
+             .contains(quality))
+        return;
+    if (m_quality == quality && m_sourceKind == "catalog" && m_sourcePreference == "catalog")
+        return;
+    m_sourcePreference = "catalog";
+    m_quality = quality;
+    if (hasTrack()) {
+        refreshCurrentSource();
+    }
+    emit changed();
+}
+void PlaybackService::openLocalFiles()
+{
+    const auto files =
+        QFileDialog::getOpenFileNames(nullptr, tr("添加本地音乐"), {},
+                                      tr("音频文件 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg *.opus "
+                                         "*.aiff *.ape *.dsf *.dff *.mkv);;所有文件 (*)"));
+    PlaybackTracks tracks;
+    for (const auto &path : files) {
+        PlaybackTrack t;
+        t.id = path;
+        t.localPath = path;
+        t.title = QFileInfo(path).completeBaseName();
+        tracks.append(t);
+    }
+    if (!tracks.isEmpty())
+        playTracks(tracks, 0, tr("本地音乐"), "local");
+}
+void PlaybackService::retry()
+{
+    if (m_personalFm->active() && queue()->currentIndex() < 0) {
+        m_personalFm->play();
+        return;
+    }
+    if (queue()->currentIndex() >= 0)
+        playIndex(queue()->currentIndex());
+}
+void PlaybackService::requestHistory()
+{
+    if (m_closing)
+        return;
+    if (m_repository)
+        m_repository->loadHistory(m_account, m_revision);
+    else
+        emit historyLoaded({});
+}
+void PlaybackService::removeHistory(const QStringList &keys)
+{
+    if (!m_closing && m_repository)
+        m_repository->removeHistory(m_account, keys);
+}
+void PlaybackService::clearHistory()
+{
+    if (!m_closing && m_repository)
+        m_repository->clearHistory(m_account);
+}
+void PlaybackService::shutdown()
+{
+    if (m_listenTogether)
+        m_listenTogether->shutdown();
+    m_personalFm->shutdown();
+    m_discoverQueue->shutdown();
+    if (std::exchange(m_closing, true))
+        return;
+    m_sleepInhibitor.setRequired(false);
+    m_recovery->cancel();
+    finishHistory();
+    m_listening.shutdown();
+    persist();
+    m_saveTimer.stop();
+    m_spectrum.stop();
+    m_mediaTimer.stop();
+    invalidate();
+    m_sleepTimer.cancel();
+    m_effectCatalog.shutdown();
+    m_audioControls.shutdownImports();
+    // The selected remote renderer must acknowledge Stop before the native
+    // actor starts cancellation/join. Audio/SQL owners can drain in parallel.
+    m_cast->shutdown([guard = QPointer<PlaybackService>(this)] {
+        if (guard)
+            guard->m_native.shutdown();
+    });
+    if (m_repository)
+        m_repository->shutdown();
+    m_engine.shutdown();
+}
+void PlaybackService::playViewedIndex(int index)
+{
+    if (m_catalog.viewActive() && index == queue()->currentIndex() && m_loaded) {
+        toggle();
+        return;
+    }
+    m_catalog.activateViewed();
+    m_sourceKey = m_catalog.activeKey();
+    m_queueTitle = m_catalog.activeTitle();
+    playIndex(index);
+}
+void PlaybackService::resumeViewedQueue()
+{
+    auto *model = m_catalog.viewModel();
+    if (model && model->rowCount())
+        playViewedIndex(qMax(0, model->currentIndex()));
+}
+void PlaybackService::removeViewedIndex(int index)
+{
+    auto *model = m_catalog.viewModel();
+    if (!model || !model->at(index))
+        return;
+    const bool active = model == queue() && model->at(index)->key() == m_track.key();
+    const bool wasPlaying = m_playing;
+    model->remove(index);
+    if (active && model->rowCount()) {
+        playIndex(qMin(index, model->rowCount() - 1));
+        m_autoplay = wasPlaying;
+    }
+}
+void PlaybackService::publishMedia()
+{
+    if (!m_ready)
+        return;
+    m_engine.mediaMetadata(m_track.title, m_track.artist, m_track.album, m_duration, m_coverPng);
+    m_engine.mediaTimeline(m_position, m_duration, m_playing, speed());
+}
+void PlaybackService::persist()
+{
+    if (!m_repository || m_restoring || (m_queueRestorePending && m_sequence == m_restoreSequence))
+        return;
+    const auto states = m_catalog.snapshot();
+    m_repository->save(PlaybackRepository::SharedQueueScope, states, m_catalog.activeKey(),
+                       m_catalog.lastLocalKey());
+}
+void PlaybackService::finishHistory()
+{
+    m_listening.flush();
+    if (m_repository && m_listenedMs > 0)
+        m_repository->record(m_account, m_track, m_listenedMs);
+    m_listenedMs = 0;
+    m_listenTick.restart();
+}
+} // namespace EchoMusic
+
+bool EchoMusic::PlaybackService::tryMvFallback(const QString &reason)
+{
+    if (m_closing || !m_preferences.mvAudioFallbackEnabled() || m_sourceKind == "mv" ||
+        !m_track.localPath.isEmpty())
+        return false;
+    if (!m_track.songId) {
+        m_mvFailure = tr("缺少歌曲关联 ID，无法查询曲库 MV");
+        return false;
+    }
+    if (!m_source.tryMv(m_track))
+        return false;
+    if (m_sourceFailure.isEmpty())
+        m_sourceFailure = reason;
+    m_mvFailure.clear();
+    m_mvRecovery = false;
+    m_transition->clear();
+    m_recovery->cancel();
+    m_engine.cancelSourceReplacement();
+    m_engine.command(AudioEngine::Stop);
+    m_audioSequence = ++m_audioSerial;
+    ++m_sourceRevision;
+    m_loading = true;
+    m_loaded = false;
+    m_seamless = false;
+    m_error.clear();
+    emit changed();
+    return true;
+}
+bool EchoMusic::PlaybackService::recoverSource(const QString &reason)
+{
+    if (m_closing || !hasTrack() || !m_track.localPath.isEmpty())
+        return false;
+    const bool mv = m_sourceKind == "mv";
+    if (!mv) {
+        if (m_sourceFailure.isEmpty())
+            m_sourceFailure = reason;
+        m_loading = true;
+        m_loaded = false;
+        m_seamless = false;
+        m_resumePosition = m_position;
+        if (!m_source.hasContext(m_track)) {
+            m_source.resolve(m_track, apiQuality(), apiEffect(), m_privileges,
+                             m_preferences.compatibilityMode(), m_preferences.viperQualityEnabled(),
+                             {}, m_sourcePreference, m_audioControls.volumeNormalization());
+            return true;
+        }
+        if (m_source.continueAfterFailure())
+            return true;
+        if (tryMvFallback(reason))
+            return true;
+    }
+    m_loading = false;
+    if (!m_sourceFailure.isEmpty()) {
+        if (mv)
+            m_mvFailure = reason;
+        m_error = m_sourceFailure;
+    }
+    return false;
+}
+
+void EchoMusic::PlaybackService::ensureQualities()
+{
+    if (hasTrack() && m_track.localPath.isEmpty()) {
+        if (m_track.catalogMetadata.value("cloud_source").toObject().isEmpty())
+            m_cloudSources.ensure();
+        if (m_privileges.isEmpty())
+            m_source.ensureCatalogRights(m_track);
+    }
+}

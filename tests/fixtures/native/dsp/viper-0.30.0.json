@@ -1,0 +1,717 @@
+{
+  "id": "echomusic-viper",
+  "version": "0.30.0",
+  "manifest": {
+    "schemaVersion": 1,
+    "displayName": "ViPER 音效引擎",
+    "description": "提供黑胶唱片、黑钻蝰蛇等预设，支持预设参数调节、VPF 与脉冲响应处理",
+    "vendor": "EchoMusicViper",
+    "resources": [
+      {
+        "kind": "vpf",
+        "extensions": [
+          ".vpf"
+        ]
+      },
+      {
+        "kind": "impulse-response",
+        "extensions": [
+          ".wav",
+          ".irs"
+        ]
+      }
+    ],
+    "presets": [
+      {
+        "id": "kugou-3d-liyin",
+        "label": "3D丽音",
+        "description": "拓宽声场与声音层次，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "q24-haas-surround",
+          "q24-playback-gain",
+          "q24-soft-limiter"
+        ]
+      },
+      {
+        "id": "kugou-super-bass",
+        "label": "超重低音",
+        "description": "增强低频量感与下潜表现",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "dynamic-bass-q24",
+          "soft-limiter"
+        ]
+      },
+      {
+        "id": "kugou-hifi-live",
+        "label": "HiFi现场",
+        "description": "增强现场空间感与声音细节",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-virtualizer-2x2-fir",
+          "macos-viper-natural-sound",
+          "q24-level-controller",
+          "q24-lookahead-limiter",
+          "macos-float-resampler"
+        ]
+      },
+      {
+        "id": "kugou-3d-surround",
+        "label": "3D环绕",
+        "description": "选择球形环绕或固定声场，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-vcc-graph",
+          "script-binaural-hrtf",
+          "hall-zrev2",
+          "simple-plate-reverb",
+          "soft-limiter"
+        ],
+        "controls": [
+          {
+            "id": "mode",
+            "type": "select",
+            "label": "环绕模式",
+            "defaultValue": 0,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": 0,
+                "label": "球形环绕"
+              },
+              {
+                "value": 1,
+                "label": "声场模式"
+              }
+            ]
+          },
+          {
+            "id": "speed",
+            "type": "select",
+            "label": "环绕周期",
+            "defaultValue": 2,
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "mode",
+              "value": 0
+            },
+            "options": [
+              {
+                "value": 0,
+                "label": "15 秒"
+              },
+              {
+                "value": 1,
+                "label": "12 秒"
+              },
+              {
+                "value": 2,
+                "label": "10 秒"
+              },
+              {
+                "value": 3,
+                "label": "8 秒"
+              },
+              {
+                "value": 4,
+                "label": "5 秒"
+              }
+            ]
+          },
+          {
+            "id": "level",
+            "type": "select",
+            "label": "声场大小",
+            "defaultValue": 2,
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "mode",
+              "value": 1
+            },
+            "options": [
+              {
+                "value": 0,
+                "label": "小"
+              },
+              {
+                "value": 1,
+                "label": "较小"
+              },
+              {
+                "value": 2,
+                "label": "中"
+              },
+              {
+                "value": 3,
+                "label": "较大"
+              },
+              {
+                "value": 4,
+                "label": "大"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "kugou-black-diamond",
+        "label": "黑钻蝰蛇",
+        "description": "增强声音厚度、空间感与动态表现",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-vinyl-nonlinear-core",
+          "v4a-rate-wrapper",
+          "raw-device-irs",
+          "q25-soft-limiter",
+          "q24-wrapper-dynamics"
+        ]
+      },
+      {
+        "id": "kugou-spatial",
+        "label": "空间音效",
+        "description": "手动调整声场方向，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "viperar-angle-kernel",
+          "viperar-startup-crossfade",
+          "viperar-live-crossfade",
+          "viperar-q25-master-limiter"
+        ],
+        "controls": [
+          {
+            "id": "mode",
+            "type": "boolean",
+            "label": "控制方式",
+            "defaultValue": true,
+            "ownership": "provider",
+            "description": "自动模式暂不可用，请使用手动模式。",
+            "options": [
+              {
+                "value": false,
+                "label": "自动",
+                "disabled": true
+              },
+              {
+                "value": true,
+                "label": "手动"
+              }
+            ]
+          },
+          {
+            "id": "angle",
+            "type": "number",
+            "label": "声场方向",
+            "defaultValue": 0,
+            "unit": "°",
+            "range": {
+              "min": 0,
+              "max": 359,
+              "step": 1,
+              "minLabel": "0°",
+              "maxLabel": "359°"
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "mode",
+              "value": true
+            },
+            "description": "手动选择声场方向。"
+          }
+        ]
+      },
+      {
+        "id": "kugou-concert",
+        "label": "演唱会",
+        "description": "选择场馆和观众席位置，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "viperar-room-kernel",
+          "viperar-startup-crossfade",
+          "viperar-live-crossfade",
+          "viperar-q25-master-limiter"
+        ],
+        "controls": [
+          {
+            "id": "scene",
+            "type": "select",
+            "label": "场馆",
+            "defaultValue": 1,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": 0,
+                "label": "歌剧院"
+              },
+              {
+                "value": 1,
+                "label": "酷狗现场"
+              },
+              {
+                "value": 2,
+                "label": "体育场"
+              }
+            ]
+          },
+          {
+            "id": "seat",
+            "type": "number",
+            "label": "座位",
+            "defaultValue": 8,
+            "range": {
+              "min": 1,
+              "max": 12,
+              "step": 1
+            },
+            "ownership": "provider",
+            "description": "歌剧院和体育场支持 1–12；酷狗现场支持 1–11。"
+          }
+        ]
+      },
+      {
+        "id": "kugou-ancient-vocal",
+        "label": "声乐古风",
+        "description": "调节人声与乐器的平衡",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-isolate-spectral-separation",
+          "stereo-environment",
+          "soft-limiter"
+        ],
+        "controls": [
+          {
+            "id": "balance",
+            "type": "number",
+            "label": "人声 / 乐器平衡",
+            "defaultValue": 25,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "description": "向左突出人声，向右突出乐器；默认 25%。"
+          }
+        ]
+      },
+      {
+        "id": "kugou-clear-vocal",
+        "label": "纯净人声",
+        "description": "突出人声清晰度与主体感",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "clear-voice-q24",
+          "soft-limiter"
+        ]
+      },
+      {
+        "id": "kugou-panorama-51",
+        "label": "5.1全景",
+        "description": "调节六个虚拟音箱的位置声道与音量，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-atoms-six-speaker-layout",
+          "android-atoms-channel-basis",
+          "atoms-float-limiter"
+        ],
+        "controls": [
+          {
+            "id": "frontLeftEnabled",
+            "type": "boolean",
+            "label": "左前声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "frontLeftVolume",
+            "type": "number",
+            "label": "左前音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "frontLeftEnabled",
+              "value": true
+            }
+          },
+          {
+            "id": "frontRightEnabled",
+            "type": "boolean",
+            "label": "右前声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "frontRightVolume",
+            "type": "number",
+            "label": "右前音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "frontRightEnabled",
+              "value": true
+            }
+          },
+          {
+            "id": "centerEnabled",
+            "type": "boolean",
+            "label": "中置声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "centerVolume",
+            "type": "number",
+            "label": "中置音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "centerEnabled",
+              "value": true
+            }
+          },
+          {
+            "id": "lfeEnabled",
+            "type": "boolean",
+            "label": "低音声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "lfeVolume",
+            "type": "number",
+            "label": "低音音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "lfeEnabled",
+              "value": true
+            }
+          },
+          {
+            "id": "rearLeftEnabled",
+            "type": "boolean",
+            "label": "左后声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "rearLeftVolume",
+            "type": "number",
+            "label": "左后音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "rearLeftEnabled",
+              "value": true
+            }
+          },
+          {
+            "id": "rearRightEnabled",
+            "type": "boolean",
+            "label": "右后声道",
+            "defaultValue": true,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": false,
+                "label": "关闭"
+              },
+              {
+                "value": true,
+                "label": "开启"
+              }
+            ]
+          },
+          {
+            "id": "rearRightVolume",
+            "type": "number",
+            "label": "右后音量",
+            "defaultValue": 50,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1
+            },
+            "ownership": "provider",
+            "visibleWhen": {
+              "controlId": "rearRightEnabled",
+              "value": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "kugou-3d-rotation",
+        "label": "3D旋转",
+        "description": "双耳空间旋转，建议使用耳机",
+        "recommendedDevice": "headphone",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-rotation-bass-field",
+          "macos-viper3d-hrtf",
+          "rotation-controller",
+          "soft-limiter"
+        ],
+        "controls": [
+          {
+            "id": "speed",
+            "type": "number",
+            "label": "旋转速度",
+            "defaultValue": 10,
+            "range": {
+              "min": 0,
+              "max": 20,
+              "step": 1
+            },
+            "ownership": "provider",
+            "description": "数值越大，转动越快；0 为极慢速。"
+          },
+          {
+            "id": "bass",
+            "type": "number",
+            "label": "超重低音",
+            "defaultValue": 0,
+            "range": {
+              "min": 0,
+              "max": 400,
+              "step": 1
+            },
+            "ownership": "provider",
+            "description": "调节旋转音效中的低频增强。"
+          },
+          {
+            "id": "field",
+            "type": "number",
+            "label": "声场大小",
+            "defaultValue": 0,
+            "range": {
+              "min": 0,
+              "max": 4,
+              "step": 1
+            },
+            "ownership": "provider",
+            "description": "调节旋转前的声场滤波；与低音均为 0 时关闭这一增强环节。"
+          }
+        ]
+      },
+      {
+        "id": "kugou-vinyl",
+        "label": "黑胶唱片",
+        "description": "选择唱片年代与老化程度",
+        "supportedSampleRates": [
+          44100,
+          48000,
+          96000
+        ],
+        "modules": [
+          "macos-lp-nonlinear-core",
+          "soft-limiter"
+        ],
+        "controls": [
+          {
+            "id": "year",
+            "type": "select",
+            "label": "唱片年代",
+            "defaultValue": 2010,
+            "ownership": "provider",
+            "options": [
+              {
+                "value": 1900,
+                "label": "1900 年代"
+              },
+              {
+                "value": 1930,
+                "label": "1930 年代"
+              },
+              {
+                "value": 1960,
+                "label": "1960 年代"
+              },
+              {
+                "value": 1980,
+                "label": "1980 年代"
+              },
+              {
+                "value": 2010,
+                "label": "2010 年代"
+              }
+            ]
+          },
+          {
+            "id": "aging",
+            "type": "number",
+            "label": "老化程度",
+            "defaultValue": 0,
+            "unit": "%",
+            "range": {
+              "min": 0,
+              "max": 100,
+              "step": 1,
+              "minLabel": "全新",
+              "maxLabel": "老化",
+              "inverted": true
+            },
+            "ownership": "provider",
+            "description": "调节唱片抖动、灰尘和磨损；年代本身也会影响底噪和音色。"
+          }
+        ]
+      }
+    ],
+    "controls": [],
+    "opaque": {
+      "vpfParser": "android-legacy-freestyle-struct-aligned",
+      "presetCompatibility": "reverse-engineered",
+      "androidReference": "libeffect0.so",
+      "vinylReference": "macos-48khz-nonlinear-core-exact",
+      "blackDiamondFullClientRouteVerified": false,
+      "eaxRenderer": "openal-eax-windows-9.2.71-adapter",
+      "windowsReference": "48khz-numerically-aligned"
+    }
+  },
+  "state": {
+    "schemaVersion": 1,
+    "latencyFrames": 0,
+    "effect": {
+      "id": "none",
+      "name": "ViPERDSP"
+    },
+    "controls": {},
+    "opaque": {
+      "presetFidelity": "none",
+      "implementation": "No preset selected",
+      "outputMode": "speaker",
+      "presetAssetLoaded": false
+    }
+  }
+}

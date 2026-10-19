@@ -1,0 +1,8 @@
+{
+  "name": "echo-format-tools",
+  "private": true,
+  "description": "Development-only formatting; never included in the Qt application",
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

@@ -1,0 +1,110 @@
+add_library(
+    echo_playback_service STATIC
+    ImpulseResponseInstaller.h
+    ImpulseResponseInstaller.cpp
+    ImpulseResponseImporter.h
+    ImpulseResponseImporter.cpp
+    PlaybackLibraryActions.h
+    PlaybackLibraryActions.cpp
+    SongCommands.h
+    SongCommands.cpp
+    SongShareText.h
+    SongShareText.cpp
+    AudioEffectCatalog.h
+    AudioEffectCatalog.cpp
+    DspProviderRegistry.h
+    DspProviderRegistry.cpp
+    SleepTimer.h
+    SleepTimer.cpp
+    EqualizerPresets.h
+    PlaybackAudioControls.h
+    PlaybackAudioControls.cpp
+    NativeBridge.h
+    NativeBridge.cpp
+    PlaybackQueueCatalog.h
+    PlaybackQueueCatalog.cpp
+    PlaybackRepository.h
+    PlaybackRepository.cpp
+    AudioEngine.cpp
+    PlayerSpectrum.h
+    PlayerSpectrum.cpp
+    PlaybackArtwork.h
+    PlaybackArtwork.cpp
+    AudioEngine.h
+    PlaybackTrack.cpp
+    PlaybackTrack.h
+    PlaybackQueueModel.cpp
+    PlaybackQueueModel.h
+    DynamicCoverController.h
+    DynamicCoverController.cpp
+    LyricAppearance.h
+    LyricAppearance.cpp
+    LyricTextController.h
+    LyricTextController.cpp
+    LyricSourceController.h
+    LyricSourceController.cpp
+    LyricModel.cpp
+    LyricModel.h
+    PlaybackClimaxModel.h
+    PlaybackClimaxModel.cpp
+    PlaybackProgressState.h
+    PlaybackProgressState.cpp
+    ListeningReporter.h
+    ListeningReporter.cpp
+    ListenTogetherSeed.h
+    ListenTogetherController.h
+    ListenTogetherController.cpp
+    ListenTogetherSession.cpp
+    ListenTogetherRoom.cpp
+    ListenTogetherPlayback.cpp
+    ListenTogetherListModel.h
+    ListenTogetherListModel.cpp
+    PersonalFmController.h
+    PersonalFmController.cpp
+    DiscoverQueueController.h
+    DiscoverQueueController.cpp
+    PlaybackService.cpp
+    PlaybackService.h
+    CloudAudioIndex.h
+    CloudAudioIndex.cpp
+    PlaybackSourceRequest.h
+    PlaybackSourceRequest.cpp
+    PlaybackSourcePlan.h
+    PlaybackSourcePlan.cpp
+    TrackTransitionController.h
+    TrackTransitionController.cpp
+    PlaybackRecoveryController.h
+    PlaybackRecoveryController.cpp
+    PlaybackFailureController.h
+    PlaybackFailureController.cpp
+    PlayerEnginePreferences.h
+    PlayerEnginePreferences.cpp
+    PlaybackPreferences.h
+    PlaybackPreferences.cpp
+    cast/SsdpDiscovery.h
+    cast/SsdpDiscovery.cpp
+    cast/CastService.h
+    cast/CastService.cpp
+    cast/DlnaSession.h
+    cast/DlnaSession.cpp
+)
+target_include_directories(
+    echo_playback_service
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+target_link_libraries(
+    echo_playback_service
+    PUBLIC echo_bridge
+           echo_network
+           echo_account
+           echo_sharing
+           echo_library
+           echo_platform
+           Qt6::Widgets
+           Qt6::Sql
+           Qt6::Network
+           Qt6::Concurrent
+    PRIVATE echo_build_options echo_ffi
+)
+qt_extract_metatypes(echo_playback_service)

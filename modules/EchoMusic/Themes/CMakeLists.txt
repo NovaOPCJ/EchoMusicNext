@@ -1,0 +1,26 @@
+qt_add_qml_module(
+    echo_themes
+    STATIC
+    URI
+    EchoMusic.Themes
+    QML_FILES
+    ThemeCenterPage.qml
+    ThemeThumbnail.qml
+    ThemePaletteGallery.qml
+    ThemeCatalogCard.qml
+    ThemeAppearanceDrawer.qml
+    ThemeImageCropper.qml
+    ThemeImageEditor.qml
+    ThemeAppearanceRange.qml
+)
+target_link_libraries(
+    echo_themes
+    PRIVATE echo_build_options
+            echo_shell
+            echo_shellplugin
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::QuickControls2
+)

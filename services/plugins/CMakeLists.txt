@@ -1,0 +1,22 @@
+add_library(
+    echo_plugin_packages STATIC
+    PluginPackage.h
+    PluginPackage.cpp
+    PluginDataTransaction.h
+    PluginDataTransaction.cpp
+    PluginMarketplaceStats.h
+    PluginMarketplaceStats.cpp
+    PluginDependencyGraph.h
+    PluginDependencyGraph.cpp
+)
+target_include_directories(echo_plugin_packages PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_plugin_packages
+    PUBLIC Qt6::Core
+    PRIVATE Qt6::Sql
+    PRIVATE echo_build_options
+)
+
+# Rust extraction stays behind this service; UI modules never include its ABI.
+target_link_libraries(echo_plugin_packages PRIVATE echo_ffi)
+target_include_directories(echo_plugin_packages PRIVATE ${PROJECT_SOURCE_DIR}/include)

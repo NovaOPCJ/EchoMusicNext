@@ -1,0 +1,1771 @@
+[
+  {
+    "song": {
+      "id": "339415062",
+      "hash": "34BFA9F8E6BEDF63C640421D010AE8AF",
+      "title": "[REDACTED]",
+      "artists": [
+        {
+          "id": 6076,
+          "name": "[REDACTED]"
+        }
+      ],
+      "album_id": "49057589",
+      "album_title": "[REDACTED]",
+      "duration_ms": 265430,
+      "cover_url": "http://imge.kugou.com/sample-media.jpg",
+      "privilege": 10,
+      "metadata": {
+        "audio_id": 177615093,
+        "original_title": null,
+        "official_title": null,
+        "title_suffix": "[REDACTED]",
+        "album_audio_remark": "[REDACTED]",
+        "source_file_name": "[REDACTED]",
+        "language": null,
+        "published_at": "2021-09-25",
+        "publication_code": 1,
+        "originality_code": 1,
+        "has_accompaniment": null,
+        "accompaniment_code": null,
+        "related_goods_extension": null,
+        "provider_extension": {
+          "FpHit": 133,
+          "Group": 2,
+          "GroupIndex": 5,
+          "MaxOffset": 84,
+          "PeakCount": 372,
+          "PeakHit": 164,
+          "PeakHitRatio": 0,
+          "album": [
+            {
+              "albumid": "49057589",
+              "albumname": "[REDACTED]",
+              "category": "1",
+              "img": "[REDACTED]",
+              "is_publish": 1,
+              "publish_date": "2021-09-25",
+              "scid": "121555048"
+            }
+          ],
+          "album_id": "49057589",
+          "authors": [
+            {
+              "author_id": "6076",
+              "author_name": "[REDACTED]"
+            }
+          ],
+          "bitrate_high": "1526",
+          "bitrate_super": "0",
+          "collect_count": 21312670,
+          "composer_info": [
+            {
+              "author_id": "202765",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "db_from": "[REDACTED]",
+          "dist": "0.000",
+          "dist_nomelody": "0.000",
+          "filesize_128": 4247489,
+          "filesize_192": 0,
+          "filesize_320": 10618441,
+          "filesize_ape": 0,
+          "filesize_flac": 25325000,
+          "filesize_high": 50657587,
+          "filesize_other": 0,
+          "filesize_super": 0,
+          "hash_128": "E2A603CE6DDC144CEB7BF3E208874538",
+          "hash_192": "",
+          "hash_320": "52310A8C1C08C1C7DA61B0BF9DA54365",
+          "hash_ape": "",
+          "hash_flac": "6B60C8B8CB0B8C2725F895B8075F5E74",
+          "hash_high": "46123322930843911899B0A897E95CFE",
+          "hash_hit": "34BFA9F8E6BEDF63C640421D010AE8AF",
+          "hash_other": "",
+          "hash_super": "",
+          "hit": 297,
+          "is_aik": 0,
+          "is_break_rule": 2,
+          "is_original": "1",
+          "is_play_free": 0,
+          "is_publish": 1,
+          "lyric_id": 188849710,
+          "lyrics_info": [
+            {
+              "author_id": "811700",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "mixsong_type": "0",
+          "mixsongid": 339415062,
+          "ori_mixsongid": 0,
+          "origin_hit": -1,
+          "play_times": 20568138,
+          "privilege": 10,
+          "publish_date": "2021-09-25",
+          "rank": {},
+          "rating": -1,
+          "remark": "[REDACTED]",
+          "res_privilege": [
+            {
+              "fail_process": 4,
+              "old_cpy": 0,
+              "pay_type": 3,
+              "privilege": 10,
+              "publish": 1,
+              "trans_param": {
+                "appid_block": "3124",
+                "cid": 171215270,
+                "classmap": {
+                  "attr0": 234881032
+                },
+                "cpy_attr0": 58735744,
+                "cpy_grade": 6,
+                "cpy_level": 1,
+                "cpy_map": "6",
+                "display": 0,
+                "display_rate": 0,
+                "hash_multitrack": "0CC1C82A79D0C7434A37B4FCFD2DF6C4",
+                "hash_offset": {
+                  "clip_hash": "17F8DEAAE0537A1EF37BFD24A8141468",
+                  "end_byte": 960111,
+                  "end_ms": 60000,
+                  "file_type": 0,
+                  "offset_hash": "E2AF2CE46197E73C5E3B23E2D716C099",
+                  "start_byte": 0,
+                  "start_ms": 0
+                },
+                "ipmap": {
+                  "attr0": 1107300352,
+                  "bits": "42001000"
+                },
+                "is_original": 1,
+                "language": "国语",
+                "musicpack_advance": 1,
+                "ogg_128_filesize": 2915040,
+                "ogg_128_hash": "4B5C292658D97D66327FFBD29A3A76EE",
+                "ogg_320_filesize": 9627839,
+                "ogg_320_hash": "DE590B9984D4B5C0AC9E38E1FE6595FF",
+                "pay_block_tpl": 1,
+                "qualitymap": {
+                  "attr0": 2134884469,
+                  "attr1": 1747189759,
+                  "bits": "[REDACTED]"
+                },
+                "union_cover": "http://imge.kugou.com/sample-media.jpg"
+              },
+              "type": "audio"
+            }
+          ],
+          "scid": "121555048",
+          "similar_scid": 121555048,
+          "similary": "0.000",
+          "singer_grade": 2,
+          "singername": "[REDACTED]",
+          "songNameSuffix": "[REDACTED]",
+          "songid": "177615093",
+          "songname": "[REDACTED]",
+          "source": "[REDACTED]",
+          "str_song_type": "[REDACTED]",
+          "timelength_128": 265430,
+          "timelength_192": 0,
+          "timelength_320": 265430,
+          "timelength_ape": 0,
+          "timelength_flac": 265383,
+          "timelength_high": 265383,
+          "timelength_other": 0,
+          "timelength_super": 0,
+          "timeoffset": 312,
+          "union_cover": "http://imge.kugou.com/sample-media.jpg",
+          "version": "1",
+          "wide_scid": 121555048
+        },
+        "payment_type": 3,
+        "failure_code": 4,
+        "old_copyright_code": 0,
+        "rights": {
+          "quality_map": {
+            "attr0": 2134884469,
+            "attr1": 1747189759,
+            "bits": "[REDACTED]"
+          },
+          "classification": {
+            "attr0": 234881032
+          },
+          "ip_map": {
+            "attr0": 1107300352,
+            "bits": "42001000"
+          },
+          "copyright_attributes": 58735744,
+          "copyright_scope": "6",
+          "copyright_grade": 6,
+          "copyright_level": 1,
+          "display_code": 0,
+          "display_rate": 0,
+          "payment_template": 1,
+          "blocked_applications": "3124",
+          "originality_code": 1,
+          "advance_code": 1,
+          "preview": {
+            "start_byte": 0,
+            "end_byte": 960111,
+            "start_ms": 0,
+            "end_ms": 60000,
+            "offset_hash": "E2AF2CE46197E73C5E3B23E2D716C099",
+            "file_type": 0,
+            "clip_hash": "17F8DEAAE0537A1EF37BFD24A8141468"
+          },
+          "multitrack_hash": "0CC1C82A79D0C7434A37B4FCFD2DF6C4",
+          "cover_url": "http://imge.kugou.com/sample-media.jpg",
+          "audio_privilege": null,
+          "free_for_ad": null,
+          "free_limited": null,
+          "voice_ad": null
+        },
+        "resources": [
+          {
+            "quality": "ogg_128",
+            "hash": "4B5C292658D97D66327FFBD29A3A76EE",
+            "size_bytes": 2915040,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ogg_320",
+            "hash": "DE590B9984D4B5C0AC9E38E1FE6595FF",
+            "size_bytes": 9627839,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "standard",
+            "hash": "E2A603CE6DDC144CEB7BF3E208874538",
+            "size_bytes": 4247489,
+            "duration_ms": 265430,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "192",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "higher",
+            "hash": "52310A8C1C08C1C7DA61B0BF9DA54365",
+            "size_bytes": 10618441,
+            "duration_ms": 265430,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "flac",
+            "hash": "6B60C8B8CB0B8C2725F895B8075F5E74",
+            "size_bytes": 25325000,
+            "duration_ms": 265383,
+            "bit_rate_bps": null,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "hi_res",
+            "hash": "46123322930843911899B0A897E95CFE",
+            "size_bytes": 50657587,
+            "duration_ms": 265383,
+            "bit_rate_bps": 1526000,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "master",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ape",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "ape",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "other",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          }
+        ],
+        "videos": [],
+        "tags": [],
+        "ip_tags": [],
+        "recommendation": {
+          "headline": "",
+          "detail": "",
+          "rank_label": null
+        },
+        "ranking": null,
+        "artists": [
+          {
+            "id": 6076,
+            "name": "[REDACTED]",
+            "avatar_url": null,
+            "publication_code": null
+          }
+        ],
+        "related_versions": []
+      }
+    },
+    "distance": 0.0,
+    "confidence": 1.0,
+    "time_offset": 312
+  },
+  {
+    "song": {
+      "id": "788945684",
+      "hash": "C49C68CE577EC1CBEE653CAA9BF95B31",
+      "title": "[REDACTED]",
+      "artists": [
+        {
+          "id": 14613521,
+          "name": "[REDACTED]"
+        }
+      ],
+      "album_id": "159858687",
+      "album_title": "[REDACTED]",
+      "duration_ms": 158798,
+      "cover_url": "http://imge.kugou.com/sample-media.jpg",
+      "privilege": 10,
+      "metadata": {
+        "audio_id": 552409682,
+        "original_title": null,
+        "official_title": null,
+        "title_suffix": "",
+        "album_audio_remark": "",
+        "source_file_name": "[REDACTED]",
+        "language": null,
+        "published_at": "2025-09-03",
+        "publication_code": 1,
+        "originality_code": 2,
+        "has_accompaniment": null,
+        "accompaniment_code": null,
+        "related_goods_extension": null,
+        "provider_extension": {
+          "FpHit": 133,
+          "Group": 2,
+          "GroupIndex": 5,
+          "MaxOffset": 84,
+          "PeakCount": 372,
+          "PeakHit": 158,
+          "PeakHitRatio": 0,
+          "album": [
+            {
+              "albumid": "159858687",
+              "albumname": "[REDACTED]",
+              "category": "1",
+              "img": "[REDACTED]",
+              "is_publish": 1,
+              "publish_date": "2025-09-03",
+              "scid": "488872578"
+            }
+          ],
+          "album_id": "159858687",
+          "authors": [
+            {
+              "author_id": "14613521",
+              "author_name": "[REDACTED]"
+            }
+          ],
+          "bitrate_high": "1432",
+          "bitrate_super": "0",
+          "collect_count": 52288,
+          "composer_info": [
+            {
+              "author_id": "202765",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "db_from": "[REDACTED]",
+          "dist": "0.000",
+          "dist_nomelody": "0.000",
+          "filesize_128": 2541417,
+          "filesize_192": 0,
+          "filesize_320": 6353205,
+          "filesize_ape": 0,
+          "filesize_flac": 14467270,
+          "filesize_high": 28439780,
+          "filesize_other": 0,
+          "filesize_super": 0,
+          "hash_128": "C49C68CE577EC1CBEE653CAA9BF95B31",
+          "hash_192": "",
+          "hash_320": "1751FA1571E103D044CF7C46D1152531",
+          "hash_ape": "",
+          "hash_flac": "D54C871170A28FDA97D6B05A998221D1",
+          "hash_high": "E7C28500093F858F768326DF48B7D8D7",
+          "hash_hit": "C49C68CE577EC1CBEE653CAA9BF95B31",
+          "hash_other": "",
+          "hash_super": "",
+          "hit": 291,
+          "is_aik": 0,
+          "is_break_rule": 24,
+          "is_original": "2",
+          "is_play_free": 0,
+          "is_publish": 1,
+          "lyric_id": 457107532,
+          "lyrics_info": [
+            {
+              "author_id": "811700",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "mixsong_type": "0",
+          "mixsongid": 788945684,
+          "ori_mixsongid": 339415062,
+          "origin_hit": -1,
+          "play_times": 308807,
+          "privilege": 10,
+          "publish_date": "2025-09-03",
+          "rank": {},
+          "rating": -1,
+          "remark": "",
+          "res_privilege": [
+            {
+              "fail_process": 4,
+              "old_cpy": 0,
+              "pay_type": 3,
+              "privilege": 10,
+              "publish": 1,
+              "trans_param": {
+                "appid_block": "3124",
+                "cid": 530862424,
+                "classmap": {
+                  "attr0": 234881032
+                },
+                "cpy_attr0": 41958528,
+                "cpy_grade": 5,
+                "cpy_level": 1,
+                "cpy_map": "6",
+                "display": 0,
+                "display_rate": 0,
+                "hash_multitrack": "38477FEA658ED978DA0CABDEB655ABF0",
+                "hash_offset": {
+                  "clip_hash": "EBB9F16F6CAB45FFADDAE0F627733596",
+                  "end_byte": 960567,
+                  "end_ms": 60000,
+                  "file_type": 0,
+                  "offset_hash": "964F05E5AB706B44A1F61DFCA9E72BC8",
+                  "start_byte": 0,
+                  "start_ms": 0
+                },
+                "ipmap": {
+                  "attr0": 154652381184,
+                  "bits": "2402001000"
+                },
+                "is_original": 2,
+                "language": "国语",
+                "musicpack_advance": 1,
+                "ogg_128_filesize": 1708186,
+                "ogg_128_hash": "091E9CBEB1B316F0C12B05964944DB3F",
+                "ogg_320_filesize": 5224006,
+                "ogg_320_hash": "B66EEB9DAB6F8E0832625FC46656D075",
+                "pay_block_tpl": 1,
+                "qualitymap": {
+                  "attr0": 2132066420,
+                  "attr1": 1747189245,
+                  "bits": "[REDACTED]"
+                },
+                "songname_suffix": "[REDACTED]",
+                "union_cover": "http://imge.kugou.com/sample-media.jpg"
+              },
+              "type": "audio"
+            }
+          ],
+          "scid": "488872578",
+          "similar_scid": 488872578,
+          "similary": "0.000",
+          "singer_grade": 6,
+          "singername": "[REDACTED]",
+          "songNameSuffix": "",
+          "songid": "552409682",
+          "songname": "[REDACTED]",
+          "source": "[REDACTED]",
+          "str_song_type": "",
+          "timelength_128": 158798,
+          "timelength_192": 0,
+          "timelength_320": 158798,
+          "timelength_ape": 0,
+          "timelength_flac": 158769,
+          "timelength_high": 158769,
+          "timelength_other": 0,
+          "timelength_super": 0,
+          "timeoffset": 0,
+          "union_cover": "http://imge.kugou.com/sample-media.jpg",
+          "version": "1",
+          "wide_scid": 488872578
+        },
+        "payment_type": 3,
+        "failure_code": 4,
+        "old_copyright_code": 0,
+        "rights": {
+          "quality_map": {
+            "attr0": 2132066420,
+            "attr1": 1747189245,
+            "bits": "[REDACTED]"
+          },
+          "classification": {
+            "attr0": 234881032
+          },
+          "ip_map": {
+            "attr0": 154652381184,
+            "bits": "2402001000"
+          },
+          "copyright_attributes": 41958528,
+          "copyright_scope": "6",
+          "copyright_grade": 5,
+          "copyright_level": 1,
+          "display_code": 0,
+          "display_rate": 0,
+          "payment_template": 1,
+          "blocked_applications": "3124",
+          "originality_code": 2,
+          "advance_code": 1,
+          "preview": {
+            "start_byte": 0,
+            "end_byte": 960567,
+            "start_ms": 0,
+            "end_ms": 60000,
+            "offset_hash": "964F05E5AB706B44A1F61DFCA9E72BC8",
+            "file_type": 0,
+            "clip_hash": "EBB9F16F6CAB45FFADDAE0F627733596"
+          },
+          "multitrack_hash": "38477FEA658ED978DA0CABDEB655ABF0",
+          "cover_url": "http://imge.kugou.com/sample-media.jpg",
+          "audio_privilege": null,
+          "free_for_ad": null,
+          "free_limited": null,
+          "voice_ad": null
+        },
+        "resources": [
+          {
+            "quality": "ogg_128",
+            "hash": "091E9CBEB1B316F0C12B05964944DB3F",
+            "size_bytes": 1708186,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ogg_320",
+            "hash": "B66EEB9DAB6F8E0832625FC46656D075",
+            "size_bytes": 5224006,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "standard",
+            "hash": "C49C68CE577EC1CBEE653CAA9BF95B31",
+            "size_bytes": 2541417,
+            "duration_ms": 158798,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "192",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "higher",
+            "hash": "1751FA1571E103D044CF7C46D1152531",
+            "size_bytes": 6353205,
+            "duration_ms": 158798,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "flac",
+            "hash": "D54C871170A28FDA97D6B05A998221D1",
+            "size_bytes": 14467270,
+            "duration_ms": 158769,
+            "bit_rate_bps": null,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "hi_res",
+            "hash": "E7C28500093F858F768326DF48B7D8D7",
+            "size_bytes": 28439780,
+            "duration_ms": 158769,
+            "bit_rate_bps": 1432000,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "master",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ape",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "ape",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "other",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          }
+        ],
+        "videos": [],
+        "tags": [],
+        "ip_tags": [],
+        "recommendation": {
+          "headline": "",
+          "detail": "",
+          "rank_label": null
+        },
+        "ranking": null,
+        "artists": [
+          {
+            "id": 14613521,
+            "name": "[REDACTED]",
+            "avatar_url": null,
+            "publication_code": null
+          }
+        ],
+        "related_versions": []
+      }
+    },
+    "distance": 0.0,
+    "confidence": 1.0,
+    "time_offset": 0
+  },
+  {
+    "song": {
+      "id": "345234137",
+      "hash": "C4A2AF954BDD8723A8EAAA3024AF2684",
+      "title": "[REDACTED]",
+      "artists": [
+        {
+          "id": 554471,
+          "name": "[REDACTED]"
+        }
+      ],
+      "album_id": "0",
+      "album_title": null,
+      "duration_ms": 266501,
+      "cover_url": "http://singerimg.kugou.com/sample-media.jpg",
+      "privilege": 0,
+      "metadata": {
+        "audio_id": 182451468,
+        "original_title": null,
+        "official_title": null,
+        "title_suffix": "",
+        "album_audio_remark": "",
+        "source_file_name": "[REDACTED]",
+        "language": null,
+        "published_at": "2021-10-26",
+        "publication_code": 1,
+        "originality_code": 2,
+        "has_accompaniment": null,
+        "accompaniment_code": null,
+        "related_goods_extension": null,
+        "provider_extension": {
+          "FpHit": 121,
+          "Group": 2,
+          "GroupIndex": 5,
+          "MaxOffset": 84,
+          "PeakCount": 372,
+          "PeakHit": 154,
+          "PeakHitRatio": 0,
+          "album": {},
+          "album_id": "0",
+          "authors": [
+            {
+              "author_id": "554471",
+              "author_name": "[REDACTED]"
+            }
+          ],
+          "bitrate_high": "1593",
+          "bitrate_super": "0",
+          "collect_count": 181503,
+          "composer_info": [
+            {
+              "author_id": "202765",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "db_from": "[REDACTED]",
+          "dist": "0.000",
+          "dist_nomelody": "0.000",
+          "filesize_128": 4264608,
+          "filesize_192": 0,
+          "filesize_320": 10661265,
+          "filesize_ape": 0,
+          "filesize_flac": 25874325,
+          "filesize_high": 53091275,
+          "filesize_other": 0,
+          "filesize_super": 0,
+          "hash_128": "C4A2AF954BDD8723A8EAAA3024AF2684",
+          "hash_192": "",
+          "hash_320": "DD6AB146F6D3268AD581B2F0BC74562D",
+          "hash_ape": "",
+          "hash_flac": "43161D09814A27ACD42014EC95C688B8",
+          "hash_high": "33966344932279669A47AEFE2C71CCDB",
+          "hash_hit": "C4A2AF954BDD8723A8EAAA3024AF2684",
+          "hash_other": "",
+          "hash_super": "",
+          "hit": 275,
+          "is_aik": 0,
+          "is_break_rule": 2,
+          "is_original": "2",
+          "is_play_free": 1,
+          "is_publish": 1,
+          "lyric_id": 194437070,
+          "lyrics_info": [
+            {
+              "author_id": "811700",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "mixsong_type": "0",
+          "mixsongid": 345234137,
+          "ori_mixsongid": 0,
+          "origin_hit": -1,
+          "play_times": 79531,
+          "privilege": 0,
+          "publish_date": "2021-10-26",
+          "rank": {},
+          "rating": -1,
+          "remark": "",
+          "res_privilege": [
+            {
+              "fail_process": 0,
+              "old_cpy": 1,
+              "pay_type": 0,
+              "privilege": 0,
+              "publish": 1,
+              "trans_param": {
+                "cid": -1,
+                "classmap": {
+                  "attr0": 234881032
+                },
+                "cpy_attr0": 50331648,
+                "cpy_map": "6",
+                "display": 0,
+                "display_rate": 0,
+                "hash_multitrack": "D0ECF40E70960044BDC301DFD2231388",
+                "ipmap": {
+                  "attr0": 17213427712,
+                  "bits": "402001000"
+                },
+                "is_original": 2,
+                "language": "国语",
+                "musicpack_advance": 0,
+                "ogg_128_filesize": 2971239,
+                "ogg_128_hash": "09023FB940C0BF02FE9778C8DB9AFF84",
+                "ogg_320_filesize": 9808181,
+                "ogg_320_hash": "503C492BD2BBCFC501E2269A5FBA4C59",
+                "pay_block_tpl": 1,
+                "qualitymap": {
+                  "attr0": 1061142645,
+                  "attr1": 1746993407,
+                  "bits": "[REDACTED]"
+                },
+                "union_cover": "http://singerimg.kugou.com/sample-media.jpg"
+              },
+              "type": "audio"
+            }
+          ],
+          "scid": "125526758",
+          "similar_scid": 125526758,
+          "similary": "0.000",
+          "singer_grade": 5,
+          "singername": "[REDACTED]",
+          "songNameSuffix": "",
+          "songid": "182451468",
+          "songname": "[REDACTED]",
+          "source": "[REDACTED]",
+          "str_song_type": "",
+          "timelength_128": 266501,
+          "timelength_192": 0,
+          "timelength_320": 266000,
+          "timelength_ape": 0,
+          "timelength_flac": 266465,
+          "timelength_high": 266465,
+          "timelength_other": 0,
+          "timelength_super": 0,
+          "timeoffset": 313,
+          "union_cover": "http://singerimg.kugou.com/sample-media.jpg",
+          "version": "1",
+          "wide_scid": 125526758
+        },
+        "payment_type": 0,
+        "failure_code": 0,
+        "old_copyright_code": 1,
+        "rights": {
+          "quality_map": {
+            "attr0": 1061142645,
+            "attr1": 1746993407,
+            "bits": "[REDACTED]"
+          },
+          "classification": {
+            "attr0": 234881032
+          },
+          "ip_map": {
+            "attr0": 17213427712,
+            "bits": "402001000"
+          },
+          "copyright_attributes": 50331648,
+          "copyright_scope": "6",
+          "copyright_grade": null,
+          "copyright_level": null,
+          "display_code": 0,
+          "display_rate": 0,
+          "payment_template": 1,
+          "blocked_applications": null,
+          "originality_code": 2,
+          "advance_code": 0,
+          "preview": null,
+          "multitrack_hash": "D0ECF40E70960044BDC301DFD2231388",
+          "cover_url": "http://singerimg.kugou.com/sample-media.jpg",
+          "audio_privilege": null,
+          "free_for_ad": null,
+          "free_limited": null,
+          "voice_ad": null
+        },
+        "resources": [
+          {
+            "quality": "ogg_128",
+            "hash": "09023FB940C0BF02FE9778C8DB9AFF84",
+            "size_bytes": 2971239,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ogg_320",
+            "hash": "503C492BD2BBCFC501E2269A5FBA4C59",
+            "size_bytes": 9808181,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "standard",
+            "hash": "C4A2AF954BDD8723A8EAAA3024AF2684",
+            "size_bytes": 4264608,
+            "duration_ms": 266501,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "192",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "higher",
+            "hash": "DD6AB146F6D3268AD581B2F0BC74562D",
+            "size_bytes": 10661265,
+            "duration_ms": 266000,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "flac",
+            "hash": "43161D09814A27ACD42014EC95C688B8",
+            "size_bytes": 25874325,
+            "duration_ms": 266465,
+            "bit_rate_bps": null,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "hi_res",
+            "hash": "33966344932279669A47AEFE2C71CCDB",
+            "size_bytes": 53091275,
+            "duration_ms": 266465,
+            "bit_rate_bps": 1593000,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "master",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ape",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "ape",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "other",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          }
+        ],
+        "videos": [],
+        "tags": [],
+        "ip_tags": [],
+        "recommendation": {
+          "headline": "",
+          "detail": "",
+          "rank_label": null
+        },
+        "ranking": null,
+        "artists": [
+          {
+            "id": 554471,
+            "name": "[REDACTED]",
+            "avatar_url": null,
+            "publication_code": null
+          }
+        ],
+        "related_versions": []
+      }
+    },
+    "distance": 0.0,
+    "confidence": 1.0,
+    "time_offset": 313
+  },
+  {
+    "song": {
+      "id": "378169295",
+      "hash": "C42AFA5ECBB2EF69B8CF3F8A2979DA9E",
+      "title": "[REDACTED]",
+      "artists": [
+        {
+          "id": 5460391,
+          "name": "[REDACTED]"
+        }
+      ],
+      "album_id": "54145274",
+      "album_title": "[REDACTED]",
+      "duration_ms": 265926,
+      "cover_url": "http://imge.kugou.com/sample-media.jpg",
+      "privilege": 0,
+      "metadata": {
+        "audio_id": 208379813,
+        "original_title": null,
+        "official_title": null,
+        "title_suffix": "[REDACTED]",
+        "album_audio_remark": "",
+        "source_file_name": "[REDACTED]",
+        "language": null,
+        "published_at": "2022-02-06",
+        "publication_code": 1,
+        "originality_code": 2,
+        "has_accompaniment": null,
+        "accompaniment_code": null,
+        "related_goods_extension": null,
+        "provider_extension": {
+          "FpHit": 145,
+          "Group": 1,
+          "GroupIndex": 4,
+          "MaxOffset": 84,
+          "PeakCount": 372,
+          "PeakHit": 161,
+          "PeakHitRatio": 0,
+          "album": [
+            {
+              "albumid": "54145274",
+              "albumname": "[REDACTED]",
+              "category": "1",
+              "img": "[REDACTED]",
+              "is_publish": 1,
+              "publish_date": "2022-02-06",
+              "scid": "147245981"
+            }
+          ],
+          "album_id": "54145274",
+          "authors": [
+            {
+              "author_id": "5460391",
+              "author_name": "[REDACTED]"
+            }
+          ],
+          "bitrate_high": "0",
+          "bitrate_super": "0",
+          "collect_count": 79933,
+          "composer_info": [
+            {
+              "author_id": "202765",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "db_from": "[REDACTED]",
+          "dist": "0.000",
+          "dist_nomelody": "0.000",
+          "filesize_128": 4255466,
+          "filesize_192": 0,
+          "filesize_320": 10638330,
+          "filesize_ape": 0,
+          "filesize_flac": 23255563,
+          "filesize_high": 0,
+          "filesize_other": 0,
+          "filesize_super": 0,
+          "hash_128": "DC267DCE20E1DB8E8940ADDAD098A8CA",
+          "hash_192": "",
+          "hash_320": "83D67B2FA958D5BD8FC00E48513CC83A",
+          "hash_ape": "",
+          "hash_flac": "1AAD7D3C0B6567DCB192AAE36ACF5992",
+          "hash_high": "",
+          "hash_hit": "C42AFA5ECBB2EF69B8CF3F8A2979DA9E",
+          "hash_other": "",
+          "hash_super": "",
+          "hit": 306,
+          "is_aik": 0,
+          "is_break_rule": 2,
+          "is_original": "2",
+          "is_play_free": 1,
+          "is_publish": 1,
+          "lyric_id": 535833595,
+          "lyrics_info": [
+            {
+              "author_id": "811700",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "mixsong_type": "0",
+          "mixsongid": 378169295,
+          "ori_mixsongid": 0,
+          "origin_hit": -1,
+          "play_times": 57750,
+          "privilege": 0,
+          "publish_date": "2022-02-06",
+          "rank": {},
+          "rating": -1,
+          "remark": "",
+          "res_privilege": [
+            {
+              "fail_process": 0,
+              "old_cpy": 1,
+              "pay_type": 0,
+              "privilege": 0,
+              "publish": 1,
+              "trans_param": {
+                "cid": -1,
+                "classmap": {
+                  "attr0": 234881032
+                },
+                "cpy_attr0": 50331648,
+                "cpy_map": "7",
+                "display": 0,
+                "display_rate": 0,
+                "free_for_ad": 64,
+                "hash_multitrack": "DC4ACD0F667445BB63523444DB63D125",
+                "ipmap": {
+                  "attr0": 563001795022848,
+                  "bits": "[REDACTED]"
+                },
+                "is_original": 2,
+                "language": "国语",
+                "musicpack_advance": 0,
+                "ogg_128_filesize": 2900703,
+                "ogg_128_hash": "A24F6F456E662E4401C497F26A5C3BBA",
+                "ogg_320_filesize": 9278746,
+                "ogg_320_hash": "479F1892055D57BEBC438D90C5F02DCE",
+                "pay_block_tpl": 1,
+                "qualitymap": {
+                  "attr0": 926924853,
+                  "attr1": 1746927871,
+                  "bits": "[REDACTED]"
+                },
+                "songname_suffix": "[REDACTED]",
+                "union_cover": "http://imge.kugou.com/sample-media.jpg"
+              },
+              "type": "audio"
+            }
+          ],
+          "scid": "147245981",
+          "similar_scid": 147245981,
+          "similary": "0.000",
+          "singer_grade": 7,
+          "singername": "[REDACTED]",
+          "songNameSuffix": "[REDACTED]",
+          "songid": "208379813",
+          "songname": "[REDACTED]",
+          "source": "[REDACTED]",
+          "str_song_type": "[REDACTED]",
+          "timelength_128": 265926,
+          "timelength_192": 0,
+          "timelength_320": 265926,
+          "timelength_ape": 0,
+          "timelength_flac": 265900,
+          "timelength_high": 0,
+          "timelength_other": 0,
+          "timelength_super": 0,
+          "timeoffset": 314,
+          "union_cover": "http://imge.kugou.com/sample-media.jpg",
+          "version": "1",
+          "wide_scid": 147245981
+        },
+        "payment_type": 0,
+        "failure_code": 0,
+        "old_copyright_code": 1,
+        "rights": {
+          "quality_map": {
+            "attr0": 926924853,
+            "attr1": 1746927871,
+            "bits": "[REDACTED]"
+          },
+          "classification": {
+            "attr0": 234881032
+          },
+          "ip_map": {
+            "attr0": 563001795022848,
+            "bits": "[REDACTED]"
+          },
+          "copyright_attributes": 50331648,
+          "copyright_scope": "7",
+          "copyright_grade": null,
+          "copyright_level": null,
+          "display_code": 0,
+          "display_rate": 0,
+          "payment_template": 1,
+          "blocked_applications": null,
+          "originality_code": 2,
+          "advance_code": 0,
+          "preview": null,
+          "multitrack_hash": "DC4ACD0F667445BB63523444DB63D125",
+          "cover_url": "http://imge.kugou.com/sample-media.jpg",
+          "audio_privilege": null,
+          "free_for_ad": 64,
+          "free_limited": null,
+          "voice_ad": null
+        },
+        "resources": [
+          {
+            "quality": "ogg_128",
+            "hash": "A24F6F456E662E4401C497F26A5C3BBA",
+            "size_bytes": 2900703,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ogg_320",
+            "hash": "479F1892055D57BEBC438D90C5F02DCE",
+            "size_bytes": 9278746,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "standard",
+            "hash": "DC267DCE20E1DB8E8940ADDAD098A8CA",
+            "size_bytes": 4255466,
+            "duration_ms": 265926,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "192",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "higher",
+            "hash": "83D67B2FA958D5BD8FC00E48513CC83A",
+            "size_bytes": 10638330,
+            "duration_ms": 265926,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "flac",
+            "hash": "1AAD7D3C0B6567DCB192AAE36ACF5992",
+            "size_bytes": 23255563,
+            "duration_ms": 265900,
+            "bit_rate_bps": null,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "hi_res",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "master",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ape",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "ape",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "other",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          }
+        ],
+        "videos": [],
+        "tags": [],
+        "ip_tags": [],
+        "recommendation": {
+          "headline": "",
+          "detail": "",
+          "rank_label": null
+        },
+        "ranking": null,
+        "artists": [
+          {
+            "id": 5460391,
+            "name": "[REDACTED]",
+            "avatar_url": null,
+            "publication_code": null
+          }
+        ],
+        "related_versions": []
+      }
+    },
+    "distance": 0.0,
+    "confidence": 1.0,
+    "time_offset": 314
+  },
+  {
+    "song": {
+      "id": "414946578",
+      "hash": "53430543278840B81CA1BE7D6F2A73FB",
+      "title": "[REDACTED]",
+      "artists": [
+        {
+          "id": 9131059,
+          "name": "[REDACTED]"
+        }
+      ],
+      "album_id": "0",
+      "album_title": null,
+      "duration_ms": 261484,
+      "cover_url": "http://singerimg.kugou.com/sample-media.jpg",
+      "privilege": 0,
+      "metadata": {
+        "audio_id": 263645448,
+        "original_title": null,
+        "official_title": null,
+        "title_suffix": "",
+        "album_audio_remark": "",
+        "source_file_name": "[REDACTED]",
+        "language": null,
+        "published_at": "2022-05-30",
+        "publication_code": 1,
+        "originality_code": 2,
+        "has_accompaniment": null,
+        "accompaniment_code": null,
+        "related_goods_extension": null,
+        "provider_extension": {
+          "FpHit": 132,
+          "Group": 2,
+          "GroupIndex": 5,
+          "MaxOffset": 84,
+          "PeakCount": 372,
+          "PeakHit": 158,
+          "PeakHitRatio": 0,
+          "album": {},
+          "album_id": "0",
+          "authors": [
+            {
+              "author_id": "9131059",
+              "author_name": "[REDACTED]"
+            }
+          ],
+          "bitrate_high": "0",
+          "bitrate_super": "0",
+          "collect_count": 36583,
+          "composer_info": [
+            {
+              "author_id": "202765",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "db_from": "[REDACTED]",
+          "dist": "0.000",
+          "dist_nomelody": "0.000",
+          "filesize_128": 4184392,
+          "filesize_192": 0,
+          "filesize_320": 0,
+          "filesize_ape": 0,
+          "filesize_flac": 0,
+          "filesize_high": 0,
+          "filesize_other": 0,
+          "filesize_super": 0,
+          "hash_128": "53430543278840B81CA1BE7D6F2A73FB",
+          "hash_192": "",
+          "hash_320": "",
+          "hash_ape": "",
+          "hash_flac": "",
+          "hash_high": "",
+          "hash_hit": "53430543278840B81CA1BE7D6F2A73FB",
+          "hash_other": "",
+          "hash_super": "",
+          "hit": 290,
+          "is_aik": 0,
+          "is_break_rule": 0,
+          "is_original": "2",
+          "is_play_free": 1,
+          "is_publish": 1,
+          "lyric_id": 331723729,
+          "lyrics_info": [
+            {
+              "author_id": "811700",
+              "author_name": "[REDACTED]",
+              "is_publish": "1"
+            }
+          ],
+          "mixsong_type": "0",
+          "mixsongid": 414946578,
+          "ori_mixsongid": 0,
+          "origin_hit": -1,
+          "play_times": 33108,
+          "privilege": 0,
+          "publish_date": "2022-05-30",
+          "rank": {},
+          "rating": -1,
+          "remark": "",
+          "res_privilege": [
+            {
+              "fail_process": 0,
+              "old_cpy": 1,
+              "pay_type": 0,
+              "privilege": 0,
+              "publish": 1,
+              "trans_param": {
+                "cid": -1,
+                "classmap": {
+                  "attr0": 234881032
+                },
+                "cpy_attr0": 50331648,
+                "cpy_map": "6",
+                "display": 0,
+                "display_rate": 0,
+                "hash_multitrack": "2B6F0EF5637B76FE299BA61919BDCC5D",
+                "ipmap": {
+                  "attr0": 51841601536,
+                  "bits": "[REDACTED]"
+                },
+                "is_original": 2,
+                "language": "国语",
+                "musicpack_advance": 0,
+                "ogg_128_filesize": 2338416,
+                "ogg_128_hash": "B7A1E9F362B2358C262568D5FB8C9483",
+                "pay_block_tpl": 1,
+                "qualitymap": {
+                  "attr0": 16388,
+                  "attr1": 253,
+                  "bits": "[REDACTED]"
+                },
+                "union_cover": "http://singerimg.kugou.com/sample-media.jpg"
+              },
+              "type": "audio"
+            }
+          ],
+          "scid": "168222978",
+          "similar_scid": 168222978,
+          "similary": "0.000",
+          "singer_grade": 6,
+          "singername": "[REDACTED]",
+          "songNameSuffix": "",
+          "songid": "263645448",
+          "songname": "[REDACTED]",
+          "source": "[REDACTED]",
+          "str_song_type": "",
+          "timelength_128": 261484,
+          "timelength_192": 0,
+          "timelength_320": 0,
+          "timelength_ape": 0,
+          "timelength_flac": 0,
+          "timelength_high": 0,
+          "timelength_other": 0,
+          "timelength_super": 0,
+          "timeoffset": 3909,
+          "union_cover": "http://singerimg.kugou.com/sample-media.jpg",
+          "version": "1",
+          "wide_scid": 168222978
+        },
+        "payment_type": 0,
+        "failure_code": 0,
+        "old_copyright_code": 1,
+        "rights": {
+          "quality_map": {
+            "attr0": 16388,
+            "attr1": 253,
+            "bits": "[REDACTED]"
+          },
+          "classification": {
+            "attr0": 234881032
+          },
+          "ip_map": {
+            "attr0": 51841601536,
+            "bits": "[REDACTED]"
+          },
+          "copyright_attributes": 50331648,
+          "copyright_scope": "6",
+          "copyright_grade": null,
+          "copyright_level": null,
+          "display_code": 0,
+          "display_rate": 0,
+          "payment_template": 1,
+          "blocked_applications": null,
+          "originality_code": 2,
+          "advance_code": 0,
+          "preview": null,
+          "multitrack_hash": "2B6F0EF5637B76FE299BA61919BDCC5D",
+          "cover_url": "http://singerimg.kugou.com/sample-media.jpg",
+          "audio_privilege": null,
+          "free_for_ad": null,
+          "free_limited": null,
+          "voice_ad": null
+        },
+        "resources": [
+          {
+            "quality": "ogg_128",
+            "hash": "B7A1E9F362B2358C262568D5FB8C9483",
+            "size_bytes": 2338416,
+            "duration_ms": null,
+            "bit_rate_bps": null,
+            "extension": "ogg",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "standard",
+            "hash": "53430543278840B81CA1BE7D6F2A73FB",
+            "size_bytes": 4184392,
+            "duration_ms": 261484,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "192",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "higher",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "mp3",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "flac",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "hi_res",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": "flac",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "master",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": 0,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "ape",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": "ape",
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          },
+          {
+            "quality": "other",
+            "hash": "",
+            "size_bytes": 0,
+            "duration_ms": 0,
+            "bit_rate_bps": null,
+            "extension": null,
+            "privilege": null,
+            "payment_type": null,
+            "failure_code": null,
+            "download_status": null
+          }
+        ],
+        "videos": [],
+        "tags": [],
+        "ip_tags": [],
+        "recommendation": {
+          "headline": "",
+          "detail": "",
+          "rank_label": null
+        },
+        "ranking": null,
+        "artists": [
+          {
+            "id": 9131059,
+            "name": "[REDACTED]",
+            "avatar_url": null,
+            "publication_code": null
+          }
+        ],
+        "related_versions": []
+      }
+    },
+    "distance": 0.0,
+    "confidence": 1.0,
+    "time_offset": 3909
+  }
+]

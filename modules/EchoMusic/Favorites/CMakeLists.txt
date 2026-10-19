@@ -1,0 +1,39 @@
+qt_add_qml_module(
+    echo_favorites
+    STATIC
+    URI
+    EchoMusic.Favorites
+    DEPENDENCIES
+    EchoMusic.Account
+    EchoMusic.Controls
+    EchoMusic.Library
+    EchoMusic.Music
+    EchoMusic.Shell
+    EchoMusic.Theme
+    SOURCES
+    FavoritesService.h
+    FavoritesService.cpp
+    QML_FILES
+    FavoritesPage.qml
+    FavoriteUserCard.qml
+    FavoriteUserGrid.qml
+)
+target_link_libraries(
+    echo_favorites
+    PUBLIC echo_music echo_library echo_libraryui echo_account echo_shell echo_playback_service
+    PRIVATE echo_bridge
+            echo_libraryui
+            echo_libraryuiplugin
+            echo_build_options
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            echo_musicplugin
+            echo_shellplugin
+            echo_playback
+            echo_playbackplugin
+            Qt6::Quick
+            Qt6::QuickControls2
+)
+target_include_directories(echo_favorites PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

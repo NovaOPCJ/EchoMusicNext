@@ -1,0 +1,458 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import EchoMusic.Theme
+import EchoMusic.Controls
+import EchoMusic.Playback
+
+Popup {
+    id: page
+    objectName: "playbackPage"
+    required property PlaybackService playback
+    property real uiScale: 1
+    property EchoCover sourceCover: null
+    readonly property bool coverMoving: motion.coverFlight
+    readonly property bool enteringPage: motion.entering
+    property Component discussionComponent: null
+    readonly property alias discussionHost: discussion.item
+    readonly property bool discussionActive: resourceActive && (opened || enteringPage)
+    property Component controlsComponent: null
+    property Component windowActions: null
+    property rect nativeWindowControlsBounds: Qt.rect(0, 0, 0, 0)
+    readonly property bool hasNativeWindowControls: Qt.platform.os === "osx" && nativeWindowControlsBounds.width > 0
+    readonly property bool resourceActive: visible && (!contentItem.Window.window || (contentItem.Window.window.visible && contentItem.Window.window.visibility !== Window.Minimized))
+    readonly property Item toastAnchor: transport.item as Item
+    signal globalSettingsRequested
+    function openSkins(): void {
+        skinsOwner.open({
+            showSettings: false
+        });
+    }
+    signal titleDragRequested
+    signal titleDoubleClickRequested
+    readonly property color backgroundColor: Theme.store.lyricBackground(playback.coverColor)
+    readonly property var lyricPalette: Theme.store.lyricPalette(backgroundColor)
+    readonly property ThemeColors colors: ThemeColors {
+        tone: "white"
+        text: page.lyricPalette.text
+        secondaryText: page.lyricPalette.secondary
+        elevated: page.backgroundColor
+        card: page.backgroundColor
+        border: page.lyricPalette.border
+        accent: Theme.accent
+        accentText: page.lyricPalette.accentText
+    }
+    property real renderTime: playback.positionMs
+    property bool clockPlaying: false
+    property real clockSpeed: 1
+    property real frameBudget: 0
+    LyricClock {
+        id: lyricClock
+    }
+    HoverHandler {
+        id: contentHover
+    }
+    function syncClock(reset: bool): void {
+        lyricClock.observe(playback.positionMs, playback.playing, playback.speed, reset);
+        clockPlaying = playback.playing;
+        clockSpeed = playback.speed;
+        if (reset || !playback.playing)
+            renderTime = lyricClock.sample();
+    }
+    onResourceActiveChanged: if (resourceActive) {
+        syncClock(true);
+        playback.ensureLyrics();
+    }
+    onAboutToShow: {
+        syncClock(true);
+        playback.ensureLyrics();
+    }
+    onOpened: motion.finish()
+    onClosed: motion.finish()
+    onAboutToHide: {
+        skinsOwner.close();
+        sourceDialogOwner.close();
+    }
+    Connections {
+        target: page.playback
+        function onPositionChanged() {
+            page.syncClock(false);
+        }
+        function onChanged() {
+            if (page.resourceActive)
+                page.playback.ensureLyrics();
+            if (page.clockPlaying !== page.playback.playing || page.clockSpeed !== page.playback.speed) {
+                lyricClock.setPlaybackState(page.playback.playing, page.playback.speed);
+                page.clockPlaying = page.playback.playing;
+                page.clockSpeed = page.playback.speed;
+                page.renderTime = lyricClock.sample();
+            }
+        }
+        function onTimelineReset() {
+            page.syncClock(true);
+        }
+    }
+    FrameAnimation {
+        running: page.resourceActive && page.playback.playing && page.playback.lyrics.count > 0 && page.playback.lyrics.scrollable
+        onTriggered: {
+            page.frameBudget += frameTime;
+            if (!page.playback.lyricAppearance.highRefreshRate) {
+                const steps = Math.floor((page.frameBudget + .0005) * 60);
+                if (steps < 1)
+                    return;
+                page.frameBudget = Math.max(0, page.frameBudget - steps / 60);
+            } else {
+                page.frameBudget = 0;
+            }
+            page.renderTime = Math.min(page.playback.durationMs || Infinity, lyricClock.sample());
+        }
+    }
+    parent: Overlay.overlay
+    width: parent ? parent.width / uiScale : 0
+    height: parent ? parent.height / uiScale : 0
+    scale: uiScale
+    transformOrigin: Popup.TopLeft
+    padding: 0
+    focus: true
+    modal: true
+    dim: false
+    closePolicy: Popup.CloseOnEscape
+    EchoPopupLifecycle {
+        surface: page
+    }
+    // One ordinary scene subtree contains the actual page pixels. Popups remain
+    // outside it in Overlay, so the existing local blur cannot capture itself.
+    readonly property alias backgroundSurface: pageBackground
+    background: null
+    ParallelAnimation {
+        id: openingMotion
+        NumberAnimation {
+            target: motion
+            property: "progress"
+            from: 0
+            to: 1
+            duration: motion.travelDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: [.22, 1, .36, 1, 1, 1]
+        }
+        NumberAnimation {
+            target: motion
+            property: "hostOpacity"
+            to: 1
+            duration: Theme.store.motionEnabled ? (motion.coverFlight ? 200 : 400) : 0
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: [.22, 1, .36, 1, 1, 1]
+        }
+        SequentialAnimation {
+            PauseAnimation {
+                duration: Theme.store.motionEnabled && motion.coverFlight ? 70 : 0
+            }
+            ParallelAnimation {
+                NumberAnimation {
+                    target: motion
+                    property: "contentOpacity"
+                    to: 1
+                    duration: Theme.store.motionEnabled ? (motion.coverFlight ? 360 : 400) : 0
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: [.22, 1, .36, 1, 1, 1]
+                }
+                NumberAnimation {
+                    target: motion
+                    property: "contentOffset"
+                    to: 0
+                    duration: Theme.store.motionEnabled && motion.coverFlight ? 360 : 0
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: [.22, 1, .36, 1, 1, 1]
+                }
+            }
+        }
+    }
+    ParallelAnimation {
+        id: closingMotion
+        NumberAnimation {
+            target: motion
+            property: "progress"
+            from: 0
+            to: 1
+            duration: motion.travelDuration
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: [.4, 0, .2, 1, 1, 1]
+        }
+        NumberAnimation {
+            target: motion
+            property: "hostOpacity"
+            to: 0
+            duration: Theme.store.motionEnabled ? (motion.coverFlight ? 220 : 400) : 0
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: [.4, 0, .2, 1, 1, 1]
+        }
+    }
+    // The Popup owns modal/focus lifetime; ordinary native animations own
+    // presentation. Its transition waits for that animation before closing.
+    enter: Transition {
+        SequentialAnimation {
+            ScriptAction {
+                script: {
+                    closingMotion.stop();
+                    openingMotion.stop();
+                    motion.prepare(true);
+                    openingMotion.start();
+                }
+            }
+            PauseAnimation {
+                // The transition job captures this before ScriptAction runs.
+                duration: !Theme.store.motionEnabled ? 0 : page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 460 : 400
+            }
+        }
+    }
+    exit: Transition {
+        SequentialAnimation {
+            ScriptAction {
+                script: {
+                    openingMotion.stop();
+                    closingMotion.stop();
+                    motion.prepare(false);
+                    closingMotion.start();
+                }
+            }
+            PauseAnimation {
+                duration: !Theme.store.motionEnabled ? 0 : page.sourceCover && page.sourceCover.width > 0 && page.sourceCover.height > 0 ? 360 : 400
+            }
+        }
+    }
+    contentItem: EchoBackdropRoot {
+        objectName: "playbackBackdropScene"
+        samplingActive: page.visible
+        PlaybackBackground {
+            id: pageBackground
+            anchors.fill: parent
+            z: -1
+            playback: page.playback
+            resourceActive: page.resourceActive
+            baseColor: page.backgroundColor
+            opacity: motion.hostOpacity
+        }
+        PlaybackPageMotion {
+            id: motion
+            objectName: "playbackPageMotion"
+            anchors.fill: parent
+            z: 10
+            sourceCover: page.sourceCover
+            targetCover: albumCover
+        }
+        // Window controls keep their window logical size on every platform;
+        // this cancels body zoom while preserving Qt's system DPI scaling.
+        Item {
+            id: windowChrome
+            objectName: "playbackWindowChrome"
+            readonly property real chromeScale: 1 / page.uiScale
+            width: parent.width / chromeScale
+            height: 46
+            scale: chromeScale
+            transformOrigin: Item.TopLeft
+            MouseArea {
+                anchors.fill: parent
+                onPressed: page.titleDragRequested()
+                onDoubleClicked: page.titleDoubleClickRequested()
+            }
+            Loader {
+                objectName: "playbackWindowActionsLoader"
+                opacity: motion.hostOpacity
+                x: parent.width - width - 12
+                y: (parent.height - height) / 2
+                sourceComponent: page.windowActions
+            }
+            EchoIconButton {
+                objectName: "playbackCollapseAction"
+                opacity: motion.hostOpacity
+                // AppKit owns its default buttons; the adjacent action uses
+                // their read-only bounds in the same window coordinate space.
+                x: page.hasNativeWindowControls ? page.nativeWindowControlsBounds.x + page.nativeWindowControlsBounds.width + 8 : 16
+                y: page.hasNativeWindowControls ? page.nativeWindowControlsBounds.y + page.nativeWindowControlsBounds.height / 2 - height / 2 : (parent.height - height) / 2
+                hoverBackground: Qt.platform.os !== "osx"
+                implicitWidth: 34
+                implicitHeight: 34
+                padding: 7
+                colors: page.colors
+                glyph: "chevron-down"
+                text: qsTr("收起播放页")
+                onClicked: page.close()
+            }
+        }
+        GridLayout {
+            id: body
+            readonly property bool narrow: page.width <= 768
+            columns: narrow ? 1 : 2
+            anchors.top: parent.top
+            anchors.bottom: transport.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.topMargin: 96
+            width: Math.min(1400, parent.width) - 64
+            columnSpacing: 32
+            rowSpacing: 16
+            ColumnLayout {
+                id: coverSide
+                objectName: "playbackPageCoverSide"
+                Layout.minimumWidth: 0
+                Layout.maximumWidth: Layout.preferredWidth
+                Layout.preferredWidth: body.narrow ? body.width : Math.max(280, Math.min((body.width + 64) * 0.35, 420))
+                Layout.preferredHeight: body.narrow ? 16 + 160 + 24 + 33 + 6 + 21 : -1
+                Layout.fillHeight: !body.narrow
+                spacing: 0
+                Item {
+                    visible: !body.narrow
+                    Layout.fillHeight: true
+                }
+                PlaybackAlbumCover {
+                    id: albumCover
+                    opacity: motion.coverFlight ? 0 : motion.hostOpacity
+                    Layout.topMargin: body.narrow ? 16 : 24
+                    objectName: "playbackPageCover"
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: body.narrow ? 160 : Math.min(380, Math.max(220, parent.width * 0.8))
+                    Layout.preferredHeight: Layout.preferredWidth
+                    playback: page.playback
+                    colors: page.colors
+                    placeholderColor: page.colors.mutedSurface
+                    placeholderGlyphSize: 32
+                    resourceActive: page.resourceActive
+                    EchoSurfaceShadow {
+                        anchors.fill: parent
+                        surface: parent
+                        z: -1
+                        radius: Theme.mediaRadius
+                        blur: 64
+                        offset: Qt.vector2d(0, 24)
+                        color: Qt.rgba(0, 0, 0, 0.3)
+                    }
+                }
+                EchoTextTagRow {
+                    objectName: "playbackPageTitle"
+                    opacity: motion.hostOpacity * motion.contentOpacity
+                    transform: Translate {
+                        y: motion.contentOffset
+                    }
+                    fillTextWidth: true
+                    Layout.topMargin: 24
+                    Layout.leftMargin: 16
+                    Layout.rightMargin: 16
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.maximumWidth: 380 - 32
+                    Layout.alignment: Qt.AlignHCenter
+                    text: page.playback.title
+                    horizontalAlignment: Text.AlignHCenter
+                    color: page.colors.text
+                    lineHeight: 33
+                    font: Theme.font(22, Theme.boldWeight)
+                }
+                EchoTextTagRow {
+                    objectName: "playbackPageArtist"
+                    opacity: motion.hostOpacity * motion.contentOpacity
+                    transform: Translate {
+                        y: motion.contentOffset
+                    }
+                    fillTextWidth: true
+                    Layout.topMargin: 6
+                    Layout.bottomMargin: body.narrow ? 0 : 24
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.maximumWidth: 380 - 32
+                    Layout.alignment: Qt.AlignHCenter
+                    text: page.playback.artist
+                    horizontalAlignment: Text.AlignHCenter
+                    color: page.colors.secondaryText
+                    lineHeight: 21
+                    font: Theme.font(14, Theme.mediumWeight)
+                }
+                Item {
+                    visible: !body.narrow
+                    Layout.fillHeight: true
+                }
+            }
+            Loader {
+                opacity: motion.hostOpacity * motion.contentOpacity
+                transform: Translate {
+                    y: motion.contentOffset
+                }
+                // Destroy the view's native delegate pool on close/minimize.
+                // A null ListView model alone can retain pooled glyph resources.
+                active: page.resourceActive
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumWidth: 0
+                Layout.minimumHeight: 0
+                sourceComponent: CoverLyricViewport {
+                    objectName: "playbackLyricViewport"
+                    playback: page.playback
+                    colors: page.colors
+                    renderTime: page.renderTime
+                    resourceActive: page.resourceActive
+                    pageWidth: page.width
+                    pageHeight: page.height
+                }
+            }
+        }
+        Loader {
+            id: discussion
+            opacity: motion.hostOpacity
+            anchors.fill: parent
+            z: 5
+            sourceComponent: page.discussionComponent
+            active: page.visible
+        }
+        PlaybackLyricTools {
+            x: parent.width - width - 16
+            y: Math.max(104, 35 / page.uiScale + 58)
+            height: Math.max(0, parent.height - y - 112)
+            opacity: (contentHover.hovered || activeFocus ? 1 : 0) * motion.hostOpacity
+            enabled: opacity > 0
+            playback: page.playback
+            colors: page.colors
+            onSourceRequested: sourceDialogOwner.open()
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 200
+                }
+            }
+        }
+        EchoPopupLoader {
+            id: skinsOwner
+            objectName: "lyricSkinDrawerOwner"
+            hostItem: page.contentItem
+            sourceComponent: Component {
+                LyricSkinDrawer {
+                    id: skins
+                    playback: page.playback
+                    uiScale: page.uiScale
+                    onGlobalSettingsRequested: page.globalSettingsRequested()
+                }
+            }
+        }
+        EchoPopupLoader {
+            id: sourceDialogOwner
+            objectName: "lyricSourceDialogOwner"
+            hostItem: page.contentItem
+            sourceComponent: Component {
+                LyricSourceDialog {
+                    id: sourceDialog
+                    playback: page.playback
+                    uiScale: page.uiScale
+                }
+            }
+        }
+        Loader {
+            id: transport
+            opacity: motion.hostOpacity * motion.contentOpacity
+            transform: Translate {
+                y: motion.contentOffset
+            }
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 88
+            sourceComponent: page.controlsComponent
+            active: page.visible
+        }
+    }
+}

@@ -1,0 +1,47 @@
+qt_add_qml_module(
+    echo_music
+    STATIC
+    URI
+    EchoMusic.Music
+    SOURCES
+    SharingTypes.h
+    SongCatalogModel.h
+    SongCatalogModel.cpp
+    SongCatalogActions.h
+    SongCatalogActions.cpp
+    ArtistDirectorySliceModel.h
+    ArtistDirectorySliceModel.cpp
+    QML_FILES
+    SongDetailHeader.qml
+    SongDetailSkeleton.qml
+    SongCatalogView.qml
+    CatalogSongList.qml
+    SongCatalogBatchDrawer.qml
+    SongContextMenu.qml
+    SongListGeometry.qml
+    SongRow.qml
+    SongList.qml
+    SongListHeader.qml
+    SongLocateButton.qml
+    SongSortButton.qml
+    SongSkeletonRow.qml
+    ContentCard.qml
+    ThemedIconCover.qml
+    ContentSkeleton.qml
+    ContentGrid.qml
+    ArtistDirectory.qml
+    ArtistDirectoryAvatar.qml
+)
+target_link_libraries(
+    echo_music
+    PUBLIC echo_playback_service
+    PRIVATE echo_build_options
+            echo_theme
+            echo_themeplugin
+            echo_controls
+            echo_controlsplugin
+            Qt6::Quick
+            Qt6::QuickControls2
+)
+
+target_include_directories(echo_music PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

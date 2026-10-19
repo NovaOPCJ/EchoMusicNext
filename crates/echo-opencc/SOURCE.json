@@ -1,0 +1,24 @@
+{
+  "source": "EchoMusic/native/echo-opencc",
+  "sampled_at": "2026-10-17",
+  "original_sha256": {
+    "src/lib.rs": "28cd1c796b1a3c32916481515ca9a1e7927f0c6559dfa464e39641a3e7b156b4"
+  },
+  "removed": [
+    "N-API exports",
+    "Node callback/task wrappers",
+    "napi-build"
+  ],
+  "changes": [
+    "Qt native worker preserves source s2t-variants pipeline (s2t then reverse variants), without N-API",
+    "Bundled dictionary license links point to docs/licenses/opencc-Apache-2.0.txt"
+  ],
+  "dictionary_source_sha256": {
+    "TWVariantsRev.txt": "be60179b55e5d2e11d65d56d7d6142eb2bae0479f849aefb577e74d263370317",
+    "TWVariantsRevPhrases.txt": "5ebfb4bdc938c2b14e01ace378988d5d3dc12462b3496ef1d424951ccd371256"
+  },
+  "bundled_sha256": {
+    "TWVariantsRev.txt": "4102c0f432c259624af395e661eba337e194264ae753241898847674d70af932",
+    "TWVariantsRevPhrases.txt": "5ebfb4bdc938c2b14e01ace378988d5d3dc12462b3496ef1d424951ccd371256"
+  }
+}

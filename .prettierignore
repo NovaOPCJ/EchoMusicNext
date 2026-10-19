@@ -1,0 +1,8 @@
+# Immutable protocol evidence and generated files use their own writers.
+tests/fixtures/
+docs/
+include/echo_ffi.h
+tools/format/package-lock.json
+build/
+target/
+node_modules/

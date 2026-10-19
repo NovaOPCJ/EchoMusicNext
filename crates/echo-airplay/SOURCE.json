@@ -1,0 +1,23 @@
+{
+  "source": "EchoMusic/native/echo-airplay",
+  "sampled_at": "2026-10-13",
+  "license": "GPL-3.0-only; vendor licenses retained",
+  "removed": [
+    "N-API exports",
+    "Node task and callback wrappers",
+    "napi-build"
+  ],
+  "original_sha256": {
+    "src/session.rs": "7db83ab096f25bdc98ba8755d8e63afb45b57a25a1e06e3a369bada9a1daa3fd",
+    "src/lib.rs": "c3100f6a8fbb7707a473c8abc4280274cf2ee68d461f2767034c0e1d5baf60a5",
+    "src/pcm.rs": "0a5fe94091c798484920492f8cb34ded0150cc6df89c0073bcef49b966b3df8a",
+    "src/bonjour.rs": "ca845afe8c310ed29eb312318e0ea4bb3050281787818aa37bffb44a00388fbb"
+  },
+  "host_modifications": [
+    "Remove N-API tasks and callbacks",
+    "Track and join session workers on shutdown",
+    "Always join discovery progress worker including error path",
+    "Bound discovery with one shared semaphore; retain session ownership across cancelled discovery",
+    "Observe host cancellation during connection handshake and reset native client when clearing pairing records"
+  ]
+}

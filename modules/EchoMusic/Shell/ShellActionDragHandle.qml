@@ -1,0 +1,89 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import EchoMusic.Controls
+import EchoMusic.Theme
+
+Item {
+    id: handle
+    required property string actionKey
+    required property string glyph
+    objectName: "shellDragHandle-" + actionKey
+    property string dragGroup: "titlebar-actions"
+    property bool resourceActive: true
+    property bool gestureArmed: false
+    property color foreground: Theme.floatingText
+    property real iconOpacity: 1
+    signal clicked
+    implicitWidth: 20
+    implicitHeight: 20
+    // MouseArea.drag.active can survive pool/reuse. A cancelled press must
+    // never reactivate when this handle becomes visible with different roles.
+    onResourceActiveChanged: if (!resourceActive) {
+        gestureArmed = false;
+        ghost.Drag.cancel();
+    }
+    onActionKeyChanged: {
+        gestureArmed = false;
+        ghost.Drag.cancel();
+    }
+    EchoIcon {
+        anchors.fill: parent
+        name: handle.glyph
+        color: handle.foreground
+        opacity: pointer.drag.active ? 0.25 : handle.iconOpacity
+    }
+    Item {
+        id: ghost
+        // A pooled delegate may acquire new roles; the active gesture keeps the
+        // key captured at press and is cancelled before the delegate is reused.
+        property string actionKey: ""
+        objectName: actionKey
+        // Stay in the handle's popup delivery scene. Reparenting to a different
+        // Overlay can make it invisible and exclude that popup's DropAreas.
+        parent: handle
+        width: 24
+        height: 24
+        z: 10000
+        visible: Drag.active
+        Drag.active: pointer.drag.active && handle.resourceActive && handle.gestureArmed
+        Drag.source: ghost
+        Drag.keys: [handle.dragGroup]
+        Drag.hotSpot.x: width / 2
+        Drag.hotSpot.y: height / 2
+        EchoIcon {
+            anchors.fill: parent
+            name: handle.glyph
+            color: Theme.accentText
+        }
+    }
+    MouseArea {
+        id: pointer
+        objectName: "shellDragPointer-" + handle.actionKey
+        anchors.fill: parent
+        enabled: handle.resourceActive
+        preventStealing: true
+        // Keep the pointer stable during both hover and reordering, as requested.
+        cursorShape: Qt.ArrowCursor
+        drag.target: ghost
+        drag.threshold: 5
+        onPressed: mouse => {
+            handle.gestureArmed = true;
+            ghost.actionKey = handle.actionKey;
+            const point = mapToItem(ghost.parent, mouse.x, mouse.y);
+            ghost.x = point.x - ghost.width / 2;
+            ghost.y = point.y - ghost.height / 2;
+        }
+        onReleased: {
+            if (ghost.Drag.active) {
+                ghost.Drag.drop();
+            } else if (handle.gestureArmed && handle.resourceActive)
+                handle.clicked();
+            handle.gestureArmed = false;
+        }
+        onCanceled: {
+            handle.gestureArmed = false;
+            ghost.Drag.cancel();
+        }
+    }
+    Component.onDestruction: ghost.Drag.cancel()
+}

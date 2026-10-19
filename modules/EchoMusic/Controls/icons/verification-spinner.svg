@@ -1,0 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only; geometry from EchoMusic verification CSS. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" fill="none">
+  <circle cx="14" cy="14" r="12.5" stroke="currentColor" stroke-width="3" opacity="0.18"/>
+  <path d="M5.16117 5.16117 A12.5 12.5 0 0 1 22.83883 5.16117" stroke="currentColor" stroke-width="3"/>
+</svg>

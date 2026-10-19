@@ -1,0 +1,236 @@
+#include "EchoPluginIo.h"
+#include "EchoPluginContext.h"
+#include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
+#include <QPointer>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QUuid>
+#include <atomic>
+namespace EchoMusic
+{
+namespace
+{
+struct StorageResult
+{
+    QVariant value;
+    QString error;
+};
+bool initializeValues(QSqlDatabase &database, QString &error)
+{
+    QSqlQuery query(database);
+    if (!query.exec("PRAGMA user_version") || !query.next()) {
+        error = query.lastError().text();
+        return false;
+    }
+    const int version = query.value(0).toInt();
+    if (version == 1)
+        return true;
+    if (version != 0) {
+        error = "Unsupported plugin values schema version";
+        return false;
+    }
+    if (!database.transaction()) {
+        error = database.lastError().text();
+        return false;
+    }
+    if (!query.exec(
+            "CREATE TABLE plugin_values (key TEXT PRIMARY KEY NOT NULL, json BLOB NOT NULL)") ||
+        !query.exec("PRAGMA user_version=1") || !database.commit()) {
+        error = query.lastError().text();
+        if (error.isEmpty())
+            error = database.lastError().text();
+        database.rollback();
+        return false;
+    }
+    return true;
+}
+StorageResult accessValues(const QString &directory, const QString &key, const QByteArray &json,
+                           int command)
+{
+    StorageResult result;
+    if (!QDir().mkpath(directory))
+        return {{}, "Cannot create plugin data directory"};
+    const auto connection = QUuid::createUuid().toString();
+    {
+        auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+        db.setDatabaseName(directory + "/values.sqlite");
+        db.setConnectOptions("QSQLITE_BUSY_TIMEOUT=5000");
+        if (!db.open())
+            result.error = db.lastError().text();
+        else {
+            QSqlQuery query(db);
+            if (initializeValues(db, result.error)) {
+                query.prepare(command == 0   ? "SELECT json FROM plugin_values WHERE key=?"
+                              : command == 1 ? "INSERT INTO plugin_values(key,json) VALUES(?,?) ON "
+                                               "CONFLICT(key) DO UPDATE SET json=excluded.json"
+                                             : "DELETE FROM plugin_values WHERE key=?");
+                query.addBindValue(key);
+                if (command == 1)
+                    query.addBindValue(json);
+                if (!query.exec())
+                    result.error = query.lastError().text();
+                else if (command == 0 && query.next()) {
+                    QJsonParseError error;
+                    const auto document =
+                        QJsonDocument::fromJson(query.value(0).toByteArray(), &error);
+                    if (error.error != QJsonParseError::NoError)
+                        result.error = "Invalid stored SDK JSON";
+                    else
+                        result.value = document.object().value("value").toVariant();
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connection);
+    return result;
+}
+} // namespace
+EchoPluginIo::EchoPluginIo(EchoPluginContext &scope, QString dataPath)
+    : QObject(&scope), m_scope(scope), m_dataPath(std::move(dataPath)), m_network(this),
+      m_worker(new QObject)
+{
+    m_worker->moveToThread(&m_thread);
+    connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
+    connect(&m_thread, &QThread::finished, this, [this] {
+        m_drained = true;
+        emit drained();
+    });
+    m_thread.setObjectName("PluginValues-" + scope.installationId());
+    m_thread.start();
+}
+EchoPluginIo::~EchoPluginIo()
+{
+    Q_ASSERT(!m_thread.isRunning());
+}
+EchoPluginOperation *EchoPluginIo::get(const QUrl &url)
+{
+    return request(url, {}, {}, false);
+}
+EchoPluginOperation *EchoPluginIo::post(const QUrl &url, const QByteArray &body,
+                                        const QString &contentType)
+{
+    return request(url, body, contentType, true);
+}
+EchoPluginOperation *EchoPluginIo::request(const QUrl &url, const QByteArray &body,
+                                           const QString &contentType, bool post)
+{
+    if (!m_scope.package().capabilities.contains("unrestrictedNetwork"))
+        return m_scope.rejected("CapabilityDenied", "unrestrictedNetwork is required");
+    if ((url.scheme() != "http" && url.scheme() != "https") || url.host().isEmpty() ||
+        !url.userInfo().isEmpty() || body.size() > 10 * 1024 * 1024 || contentType.contains('\r') ||
+        contentType.contains('\n'))
+        return m_scope.rejected("InvalidArgument", "Invalid HTTP request");
+    auto *op = m_scope.operation();
+    if (op->finished())
+        return op;
+    QNetworkRequest request(url);
+    request.setTransferTimeout(30000);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    if (post)
+        request.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
+    auto *reply = post ? m_network.post(request, body) : m_network.get(request);
+    auto bytes = std::make_shared<QByteArray>();
+    op->start([guard = QPointer<QNetworkReply>(reply)] {
+        if (guard)
+            guard->abort();
+    });
+    connect(reply, &QNetworkReply::readyRead, op, [reply, op, bytes] {
+        if (reply->isOpen())
+            bytes->append(reply->readAll());
+        if (bytes->size() > 10 * 1024 * 1024) {
+            op->fail("ResponseTooLarge", "HTTP response exceeds 10 MiB");
+            reply->abort();
+        }
+    });
+    connect(reply, &QNetworkReply::finished, op, [reply, op, bytes] {
+        if (reply->isOpen())
+            bytes->append(reply->readAll());
+        if (!op->finished()) {
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (bytes->size() > 10 * 1024 * 1024)
+                op->fail("ResponseTooLarge", "HTTP response exceeds 10 MiB");
+            else if (!status && reply->error() != QNetworkReply::NoError)
+                op->fail("NetworkError", reply->errorString());
+            else {
+                QVariantMap headers;
+                for (const auto &name : reply->rawHeaderList())
+                    headers.insert(QString::fromLatin1(name),
+                                   QString::fromLatin1(reply->rawHeader(name)));
+                op->succeed(QVariantMap{{"status", status},
+                                        {"headers", headers},
+                                        {"body", *bytes},
+                                        {"url", reply->url()}});
+            }
+        }
+        reply->deleteLater();
+    });
+    return op;
+}
+EchoPluginOperation *EchoPluginIo::storage(const QString &key, const QVariant &value, int command)
+{
+    if (key.isEmpty() || key.size() > 512)
+        return m_scope.rejected("InvalidArgument", "Storage key must contain 1..512 characters");
+    const auto normalized = value.metaType() == QMetaType::fromType<QJSValue>()
+                                ? value.value<QJSValue>().toVariant()
+                                : value;
+    const auto jsonValue = QJsonValue::fromVariant(normalized);
+    if (command == 1 && jsonValue.isUndefined())
+        return m_scope.rejected("InvalidArgument", "Only JSON values can be stored");
+    const auto bytes =
+        QJsonDocument(QJsonObject{{"value", jsonValue}}).toJson(QJsonDocument::Compact);
+    if (bytes.size() > 1024 * 1024)
+        return m_scope.rejected("InvalidArgument", "Stored value exceeds 1 MiB");
+    auto *op = m_scope.operation();
+    if (op->finished() || m_closed)
+        return op;
+    auto canceled = std::make_shared<std::atomic_bool>(false);
+    op->start([canceled] { canceled->store(true); });
+    const QPointer<EchoPluginOperation> guard(op);
+    const auto directory = m_dataPath;
+    QMetaObject::invokeMethod(
+        m_worker,
+        [this, directory, key, bytes, command, guard] {
+            const auto result = accessValues(directory, key, bytes, command);
+            QMetaObject::invokeMethod(
+                this,
+                [guard, result] {
+                    if (!guard || guard->finished())
+                        return;
+                    if (result.error.isEmpty())
+                        guard->succeed(result.value);
+                    else
+                        guard->fail("StorageError", result.error);
+                },
+                Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
+    return op;
+}
+EchoPluginOperation *EchoPluginIo::readValue(const QString &key)
+{
+    return storage(key, {}, 0);
+}
+EchoPluginOperation *EchoPluginIo::writeValue(const QString &key, const QVariant &value)
+{
+    return storage(key, value, 1);
+}
+EchoPluginOperation *EchoPluginIo::removeValue(const QString &key)
+{
+    return storage(key, {}, 2);
+}
+void EchoPluginIo::shutdown()
+{
+    if (m_closed)
+        return;
+    m_closed = true;
+    // The serial barrier follows every queued database write. The GUI never waits.
+    QMetaObject::invokeMethod(
+        m_worker, [thread = &m_thread] { thread->quit(); }, Qt::QueuedConnection);
+}
+} // namespace EchoMusic

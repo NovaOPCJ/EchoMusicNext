@@ -1,0 +1,75 @@
+#include "EchoIconSource.h"
+#include <QFile>
+#include <QImage>
+#include <QPainter>
+#include <QQmlEngine>
+#include <QRegularExpression>
+#include <QSvgRenderer>
+
+namespace EchoMusic
+{
+namespace
+{
+QString resourceFor(const QString &glyph)
+{
+    static const QRegularExpression name(QStringLiteral("^[a-z0-9]+(?:-[a-z0-9]+)*$"));
+    if (!name.match(glyph).hasMatch())
+        return {};
+    const auto path = QStringLiteral(":/qt/qml/EchoMusic/Controls/icons/%1.svg").arg(glyph);
+    return QFile::exists(path) ? path : QString{};
+}
+} // namespace
+EchoIconImageProvider::EchoIconImageProvider()
+    : QQuickImageProvider(Image, ForceAsynchronousImageLoading)
+{
+}
+
+QImage EchoIconImageProvider::requestImage(const QString &id, QSize *size,
+                                           const QSize &requestedSize)
+{
+    if (size)
+        *size = {};
+    const auto fields = id.split('/');
+    if (fields.size() != 2 || fields[1].size() != 8)
+        return {};
+    const auto path = resourceFor(fields[0]);
+    bool valid = false;
+    const auto rgba = fields[1].toUInt(&valid, 16);
+    if (path.isEmpty() || !valid)
+        return {};
+    // Renderer, painter and image are local to this worker request; neither
+    // QPixmap nor GUI objects nor another mutable cache cross thread boundaries.
+    QSvgRenderer renderer(path);
+    if (!renderer.isValid())
+        return {};
+    renderer.setAspectRatioMode(Qt::KeepAspectRatio);
+    if (size)
+        *size = renderer.defaultSize();
+    const QSize pixels(
+        requestedSize.width() > 0 ? requestedSize.width() : renderer.defaultSize().width(),
+        requestedSize.height() > 0 ? requestedSize.height() : renderer.defaultSize().height());
+    QImage image(pixels, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    renderer.render(&painter);
+    // Tint the alpha silhouette, preserving stroke antialiasing and foreground
+    // alpha. Multiplying SVG RGB by a color would leave black glyphs black.
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(image.rect(), QColor::fromRgba(rgba));
+    return image;
+}
+
+EchoIconSource *EchoIconSource::create(QQmlEngine *engine, QJSEngine *)
+{
+    // QQmlEngine owns and drains the provider; its destructor has no shared data.
+    engine->addImageProvider(QStringLiteral("echo-icons"), new EchoIconImageProvider);
+    return new EchoIconSource(engine);
+}
+QUrl EchoIconSource::urlFor(const QString &glyph, const QColor &color) const
+{
+    if (!color.isValid() || resourceFor(glyph).isEmpty())
+        return {};
+    return QUrl(QStringLiteral("image://echo-icons/%1/%2")
+                    .arg(glyph, QString::number(color.rgba(), 16).rightJustified(8, '0')));
+}
+} // namespace EchoMusic
