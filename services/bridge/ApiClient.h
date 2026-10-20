@@ -72,6 +72,9 @@ public:
         return m_device;
     }
     bool setDeviceIdentity(DeviceIdentity device);
+    /// Trusted diagnostic commands only; never exposed through the QML metaobject.
+    QString diagnosticAuthorization() const;
+    QVariantList diagnosticIdentityEntries() const;
     quint64 currentAccountUserId() const
     {
         return m_userId;

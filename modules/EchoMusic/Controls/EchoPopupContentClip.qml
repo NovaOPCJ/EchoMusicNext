@@ -3,9 +3,9 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Templates as T
 
-// A background radius does not clip a Control's contentItem. Use Qt's standard
-// layer mask only when content reaches the rounded frame or its inner border.
-// Padded Dialog/Menu/Select content already inside the frame needs no layer.
+// A background radius does not clip a Control's contentItem. Capture on the
+// device-pixel grid and mask only content reaching the rounded frame/border.
+// Padded Dialog/Menu/Select content already inside the frame needs no capture.
 QtObject {
     id: clipping
     objectName: "popupContentClip"
@@ -28,71 +28,82 @@ QtObject {
         return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius;
     }
     readonly property bool needed: frame !== null && content !== null && paintedRect.width > 0 && paintedRect.height > 0 && (!contains(paintedRect.x, paintedRect.y) || !contains(paintedRect.x + paintedRect.width, paintedRect.y) || !contains(paintedRect.x, paintedRect.y + paintedRect.height) || !contains(paintedRect.x + paintedRect.width, paintedRect.y + paintedRect.height))
-    readonly property bool active: needed && frame.resourceActive
-    readonly property QtObject contentLayer: content ? content.layer : null
-    // A layer's default texture follows local item size, not Popup.scale.
-    // Render text at its final pixel size instead of magnifying a smaller FBO.
-    readonly property real renderScale: Math.abs(surface.scale) * (content ? content.Screen.devicePixelRatio : 1)
-    readonly property size textureSize: Qt.size(Math.max(1, Math.ceil(paintedRect.width * renderScale)), Math.max(1, Math.ceil(paintedRect.height * renderScale)))
-    property Binding layerEnabled: Binding {
-        target: clipping.contentLayer
-        property: "enabled"
-        value: true
-        when: clipping.active
-        restoreMode: Binding.RestoreBindingOrValue
+    readonly property bool active: needed && frame.resourceActive && frame.shaderEffectsSupported
+    property EchoPopupAnchor geometry: EchoPopupAnchor {
+        item: clipping.active ? clipping.content : null
+        coordinateItem: clipping.active && clipping.content && clipping.content.Window.window ? clipping.content.Window.window.contentItem : null
     }
-    property Binding layerSmooth: Binding {
-        target: clipping.contentLayer
-        property: "smooth"
-        value: true
-        when: clipping.active
-        restoreMode: Binding.RestoreBindingOrValue
-    }
-    property Binding layerTextureSize: Binding {
-        target: clipping.contentLayer
-        property: "textureSize"
-        value: clipping.textureSize
-        when: clipping.active
-        restoreMode: Binding.RestoreBindingOrValue
-    }
-    property Binding layerEffect: Binding {
-        target: clipping.contentLayer
-        property: "effect"
-        value: clipping.effectRecipe
-        when: clipping.active
-        restoreMode: Binding.RestoreBindingOrValue
-    }
-    property Component effectRecipe: Component {
-        MultiEffect {
-            objectName: "popupContentMaskEffect"
-            maskEnabled: true
-            maskSource: clipping.maskOwner.item
-            maskThresholdMin: 0.5
-            maskSpreadAtMin: 1
-            autoPaddingEnabled: false
-        }
-    }
-    property Loader maskOwner: Loader {
-        // Never insert the mask into a Menu/Flickable's content tree: those
-        // controls may adopt child Items as rows or include them in extents.
-        parent: clipping.active ? clipping.frame : null
-        active: clipping.active
-        visible: false
+    readonly property real dpr: content ? content.Screen.devicePixelRatio : 1
+    readonly property real scaleX: geometry.available && geometry.rect.width > 0 && paintedRect.width > 0 ? geometry.rect.width / paintedRect.width : 1
+    readonly property real scaleY: geometry.available && geometry.rect.height > 0 && paintedRect.height > 0 ? geometry.rect.height / paintedRect.height : 1
+    // Align BOTH ends of the capture with the window's device-pixel grid.
+    // Merely rounding textureSize still stretches a fractional extent and
+    // loses the direct-rendered text's subpixel origin during compositing.
+    readonly property real pixelLeft: Math.floor(geometry.rect.x * dpr + 0.000001)
+    readonly property real pixelTop: Math.floor(geometry.rect.y * dpr + 0.000001)
+    readonly property size textureSize: Qt.size(Math.max(1, Math.ceil((geometry.rect.x + geometry.rect.width) * dpr - 0.000001) - pixelLeft), Math.max(1, Math.ceil((geometry.rect.y + geometry.rect.height) * dpr - 0.000001) - pixelTop))
+    readonly property rect captureRect: Qt.rect((pixelLeft / dpr - geometry.rect.x) / scaleX, (pixelTop / dpr - geometry.rect.y) / scaleY, textureSize.width / (scaleX * dpr), textureSize.height / (scaleY * dpr))
+    property Loader renderOwner: Loader {
+        // Keep the replacement a sibling, never a Menu/Flickable content child.
+        // hideSource retains native input/focus on the original contentItem.
+        parent: clipping.active ? clipping.content.parent : null
+        active: clipping.active && clipping.geometry.available && clipping.geometry.rect.width > 0 && clipping.geometry.rect.height > 0
         width: clipping.content ? clipping.content.width : 0
         height: clipping.content ? clipping.content.height : 0
+        x: clipping.content ? clipping.content.x : 0
+        y: clipping.content ? clipping.content.y : 0
+        z: clipping.content ? clipping.content.z : 0
+        scale: clipping.content ? clipping.content.scale : 1
+        rotation: clipping.content ? clipping.content.rotation : 0
+        transformOrigin: clipping.content ? clipping.content.transformOrigin : Item.Center
+        opacity: clipping.content ? clipping.content.opacity : 1
         sourceComponent: Item {
-            objectName: "popupContentRoundedMask"
-            layer.enabled: true
-            layer.smooth: true
-            layer.textureSize: clipping.textureSize
-            Rectangle {
-                x: clipping.frameRect.x
-                y: clipping.frameRect.y
-                width: clipping.frameRect.width
-                height: clipping.frameRect.height
-                radius: clipping.radius
-                antialiasing: true
-                color: "white"
+            ShaderEffectSource {
+                id: capture
+                objectName: "popupContentCapture"
+                sourceItem: clipping.content
+                sourceRect: clipping.captureRect
+                textureSize: clipping.textureSize
+                hideSource: true
+                visible: false
+                // This capture is already at final device resolution. Do not
+                // blend neighbouring content texels; the separate AA mask
+                // remains smoothly sampled at the rounded boundary.
+                smooth: false
+                live: true
+                recursive: false
+            }
+            Item {
+                id: mask
+                objectName: "popupContentRoundedMask"
+                visible: false
+                width: clipping.captureRect.width
+                height: clipping.captureRect.height
+                layer.enabled: true
+                layer.smooth: true
+                layer.textureSize: clipping.textureSize
+                Rectangle {
+                    x: clipping.frameRect.x - clipping.captureRect.x
+                    y: clipping.frameRect.y - clipping.captureRect.y
+                    width: clipping.frameRect.width
+                    height: clipping.frameRect.height
+                    radius: clipping.radius
+                    antialiasing: true
+                    color: "white"
+                }
+            }
+            MultiEffect {
+                objectName: "popupContentMaskEffect"
+                x: clipping.captureRect.x
+                y: clipping.captureRect.y
+                width: clipping.captureRect.width
+                height: clipping.captureRect.height
+                source: capture
+                maskEnabled: true
+                maskSource: mask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1
+                autoPaddingEnabled: false
             }
         }
     }

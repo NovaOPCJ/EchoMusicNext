@@ -29,8 +29,8 @@ private:
     QPointer<QQuickWindow> m_window;
     bool m_samplingActive = true;
 };
-/// Per-surface, per-window geometry adapter. Observes ancestors instead of
-/// polling every frame; no shared application/window state or FBO is retained.
+/// Per-surface, per-window geometry adapter. Observes both item ancestry chains
+/// instead of polling every frame; no shared window state or FBO is retained.
 class EchoBackdropSampler : public QObject
 {
     Q_OBJECT

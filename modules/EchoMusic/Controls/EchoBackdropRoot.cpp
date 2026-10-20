@@ -1,6 +1,7 @@
 #include "EchoBackdropRoot.h"
 #include <QDynamicPropertyChangeEvent>
 #include <QQuickWindow>
+#include <QSet>
 #include <QVariant>
 namespace EchoMusic
 {
@@ -77,28 +78,36 @@ void EchoBackdropSampler::observe()
     m_window = m_surface ? m_surface->window() : nullptr;
     if (m_window)
         m_window->installEventFilter(this);
-    if (m_surface) {
+    if (m_surface && !m_enabled) {
         m_connections.append(
             connect(m_surface, &QQuickItem::windowChanged, this, &EchoBackdropSampler::observe));
         m_connections.append(
             connect(m_surface, &QObject::destroyed, this, &EchoBackdropSampler::observe));
     }
     if (m_enabled) {
-        for (auto *item = m_surface.data(); item; item = item->parentItem()) {
-            m_connections.append(
-                connect(item, &QQuickItem::parentChanged, this, &EchoBackdropSampler::observe));
-            m_connections.append(
-                connect(item, &QQuickItem::xChanged, this, &EchoBackdropSampler::changed));
-            m_connections.append(
-                connect(item, &QQuickItem::yChanged, this, &EchoBackdropSampler::changed));
-            m_connections.append(
-                connect(item, &QQuickItem::widthChanged, this, &EchoBackdropSampler::changed));
-            m_connections.append(
-                connect(item, &QQuickItem::heightChanged, this, &EchoBackdropSampler::changed));
-            m_connections.append(
-                connect(item, &QQuickItem::scaleChanged, this, &EchoBackdropSampler::changed));
-            m_connections.append(
-                connect(item, &QQuickItem::rotationChanged, this, &EchoBackdropSampler::changed));
+        QSet<QQuickItem *> seen;
+        // The source may be in a sibling tree (for example below Overlay).
+        // Both sides of mapRectToItem can move; shared ancestors are connected once.
+        for (auto *root : {m_surface.data(), source()}) {
+            for (auto *item = root; item && !seen.contains(item); item = item->parentItem()) {
+                seen.insert(item);
+                m_connections
+                    << connect(item, &QQuickItem::parentChanged, this,
+                               &EchoBackdropSampler::observe)
+                    << connect(item, &QQuickItem::windowChanged, this,
+                               &EchoBackdropSampler::observe)
+                    << connect(item, &QObject::destroyed, this, &EchoBackdropSampler::observe)
+                    << connect(item, &QQuickItem::xChanged, this, &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::yChanged, this, &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::widthChanged, this, &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::heightChanged, this,
+                               &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::scaleChanged, this, &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::rotationChanged, this,
+                               &EchoBackdropSampler::changed)
+                    << connect(item, &QQuickItem::transformOriginChanged, this,
+                               &EchoBackdropSampler::changed);
+            }
         }
     }
     emit changed();
@@ -107,7 +116,7 @@ bool EchoBackdropSampler::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_window && event->type() == QEvent::DynamicPropertyChange &&
         static_cast<QDynamicPropertyChangeEvent *>(event)->propertyName() == rootKey)
-        emit changed();
+        observe(); // Rebind geometry notifications when the active source changes.
     return false;
 }
 QQuickItem *EchoBackdropSampler::source() const

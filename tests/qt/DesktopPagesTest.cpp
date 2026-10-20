@@ -22,6 +22,7 @@
 #include "ShortcutService.h"
 #include "AboutService.h"
 #include "SettingsDataService.h"
+#include "ExperimentalSettingsService.h"
 #include "PluginRuntime.h"
 #include "PluginManager.h"
 #include "NetworkBootstrap.h"
@@ -745,7 +746,8 @@ struct Session
     QString initialRoute = QStringLiteral("profile");
     bool create(PlaybackService *playback = nullptr, NetworkPreferences *network = nullptr,
                 LogService *logging = nullptr, RelaunchService *relaunch = nullptr,
-                StartupController *startup = nullptr)
+                StartupController *startup = nullptr,
+                ExperimentalSettingsService *experimental = nullptr)
     {
         if (playback) {
             playback->attachLibrary(accounts.playlists, accounts.mutations);
@@ -757,7 +759,8 @@ struct Session
         theme.attachToEngine(engine);
         QQmlComponent component(&engine, QUrl("qrc:/qt/qml/EchoMusic/App/Main.qml"));
         root.reset(component.createWithInitialProperties(
-            {{"startup", QVariant::fromValue(startup)},
+            {{"experimentalSettingsService", QVariant::fromValue(experimental)},
+             {"startup", QVariant::fromValue(startup)},
              {"playbackService", QVariant::fromValue(playback)},
              {"networkPreferences", QVariant::fromValue(network)},
              {"logService", QVariant::fromValue(logging)},
@@ -3166,6 +3169,117 @@ private slots:
         QTRY_VERIFY(!session.window->isVisible());
         QCOMPARE(warnings.size(), 0);
     }
+    void productionExperimentalIdentitySettings_data()
+    {
+        productionNetworkSettingsDraftApplyResetAndTheme_data();
+    }
+    void productionExperimentalIdentitySettings()
+    {
+        QFETCH(bool, dark);
+        QFETCH(qreal, scale);
+        Session session;
+        QVERIFY(session.api.setNetworkTransport(1)); // Keep synthetic diagnostics offline.
+        RelaunchService relaunch({}, {}, false);
+        ExperimentalSettingsService experimental(session.api, session.accounts.account,
+                                                 session.accounts.saved, session.preferences,
+                                                 relaunch);
+        QVERIFY(session.accounts.account.adoptLoginAuthorization(QByteArrayLiteral(
+            "{\"user_id\":42,\"token\":\"synthetic-visible-token\",\"refresh_credential\":"
+            "\"synthetic-visible-t1\",\"nickname\":\"实验室测试账号\"}")));
+        QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+        QVERIFY(session.create(nullptr, nullptr, nullptr, &relaunch, nullptr, &experimental));
+        const auto cleanup = qScopeGuard([&session] {
+            session.root.reset();
+            session.window = nullptr;
+        });
+        QVERIFY(Test::prepareNativeInput(session.window));
+        session.theme.setFloatingFrosted(false);
+        session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
+        for (int step = 0; step < qRound((scale - 1) / .05); ++step)
+            session.shell.zoomIn();
+        session.router.navigate("settings");
+        auto *settings = session.root->findChild<QObject *>("settingsDialog");
+        QVERIFY(settings);
+        QTRY_VERIFY(settings->property("opened").toBool());
+        auto *catalog = settings->property("catalog").value<SettingsCatalog *>();
+        QVERIFY(catalog);
+        catalog->setFilter(QStringLiteral("鉴权头"));
+        QCOMPARE(catalog->count(), 1);
+        QCOMPARE(catalog->current(), QString("experimental"));
+        auto *viewport = visual(session.window->contentItem(), "settingsContentViewport");
+        QVERIFY(viewport);
+        QQuickItem *view = nullptr;
+        QTRY_VERIFY((view = visual(session.window->contentItem(), "settingsViewUserInfo")));
+        auto *reset = visual(session.window->contentItem(), "settingsResetDeviceIdentity");
+        QVERIFY(reset);
+        QCOMPARE(view->height(), 36.);
+        QCOMPARE(reset->height(), 36.);
+        QVERIFY(reset->property("danger").toBool());
+        viewport->setProperty("contentY", qMax(0., viewport->property("contentHeight").toReal() -
+                                                       viewport->height()));
+        auto *infoOwner = settings->findChild<QObject *>("settingsUserInfoOwner");
+        auto *resetOwner = settings->findChild<QObject *>("settingsResetDeviceIdentityOwner");
+        QVERIFY(infoOwner && resetOwner);
+        QVERIFY(!infoOwner->property("item").value<QObject *>());
+        QVERIFY(!resetOwner->property("item").value<QObject *>());
+        const auto snapshot = [&](const QString &suffix) {
+            const auto dir = qEnvironmentVariable("ECHO_UI_SNAPSHOT_DIR");
+            if (dir.isEmpty())
+                return true;
+            QDir().mkpath(dir);
+            return session.window->grabWindow().save(
+                dir + "/experimental-identity-" + (dark ? "dark-" : "light-") +
+                QString::number(qRound(scale * 100)) + suffix + ".png");
+        };
+        QTest::qWait(100);
+        QVERIFY(snapshot("-rows"));
+        view->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(session.window, Qt::Key_Space);
+        QPointer<QObject> info;
+        QTRY_VERIFY((info = infoOwner->property("item").value<QObject *>()));
+        QTRY_VERIFY(info->property("opened").toBool());
+        const auto rawEntries = info->property("entries");
+        const auto entries = rawEntries.metaType() == QMetaType::fromType<QJSValue>()
+                                 ? rawEntries.value<QJSValue>().toVariant().toList()
+                                 : rawEntries.toList();
+        bool hasToken = false, hasT1 = false;
+        for (const auto &entry : entries) {
+            const auto row = entry.toMap();
+            hasToken |=
+                row.value("label") == "token" && row.value("value") == "synthetic-visible-token";
+            hasT1 |= row.value("label") == "t1" && row.value("value") == "synthetic-visible-t1";
+        }
+        QVERIFY(hasToken && hasT1);
+        QVERIFY(snapshot("-viewer"));
+        QVERIFY(QMetaObject::invokeMethod(info, "close"));
+        QTRY_VERIFY(info.isNull());
+        view->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(session.window, Qt::Key_Space);
+        QTRY_VERIFY((info = infoOwner->property("item").value<QObject *>()));
+        QTRY_VERIFY(info->property("opened").toBool());
+        session.api.advanceSession();
+        QTRY_VERIFY(info.isNull());
+        reset->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(session.window, Qt::Key_Space);
+        QPointer<QObject> confirmation;
+        QTRY_VERIFY((confirmation = resetOwner->property("item").value<QObject *>()));
+        QTRY_VERIFY(confirmation->property("opened").toBool());
+        QVERIFY(snapshot("-reset"));
+        auto *cancel = visual(session.window->contentItem(), "settingsCancelDeviceReset");
+        QVERIFY(cancel);
+        cancel->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(session.window, Qt::Key_Space);
+        QTRY_VERIFY(confirmation.isNull());
+        QCOMPARE(session.accounts.account.userId(), quint64(42));
+        QVERIFY(!experimental.resetPending());
+        reset->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(session.window, Qt::Key_Space);
+        QTRY_VERIFY((confirmation = resetOwner->property("item").value<QObject *>()));
+        catalog->setFilter({});
+        QTRY_VERIFY(confirmation.isNull());
+        QTRY_VERIFY(visual(session.window->contentItem(), "appearanceMode"));
+        QCOMPARE(warnings.size(), 0);
+    }
     void productionExperimentalLoggingSettings_data()
     {
         productionNetworkSettingsDraftApplyResetAndTheme_data();
@@ -3288,7 +3402,16 @@ private slots:
             session.root.reset();
             session.window = nullptr;
         });
-        QVERIFY(Test::prepareNativeInput(session.window));
+        QVERIFY2(Test::prepareNativeInput(session.window),
+                 qPrintable(
+                     QString("Settings host: visible=%1 exposed=%2 active=%3 geometry=%4,%5 %6x%7")
+                         .arg(session.window->isVisible())
+                         .arg(session.window->isExposed())
+                         .arg(session.window->isActive())
+                         .arg(session.window->x())
+                         .arg(session.window->y())
+                         .arg(session.window->width())
+                         .arg(session.window->height())));
         session.theme.setFloatingFrosted(false);
         session.theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);
         for (int step = 0; step < qRound((scale - 1) / .05); ++step)

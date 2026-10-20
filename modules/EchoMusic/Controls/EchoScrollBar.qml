@@ -16,6 +16,11 @@ ScrollBar {
         property: "enabled"
         value: bar.angleWheelEnabled
     }
+    Binding {
+        target: bar.wheelView ? bar.wheelView.EchoWheelScroll : null
+        property: "motionEnabled"
+        value: Theme.store.motionEnabled
+    }
     property bool resourceActive: true
     readonly property bool revealed: resourceActive && (areaHover.hovered || hovered || pressed || active || hideDelay.running)
     readonly property int effectDuration: Theme.normalDuration > 0 ? 200 : 0

@@ -6,6 +6,8 @@ qt_add_qml_module(
     SOURCES
     SettingsCatalog.h
     SettingsCatalog.cpp
+    ExperimentalSettingsService.h
+    ExperimentalSettingsService.cpp
     SettingsServiceTypes.h
     AboutService.h
     AboutService.cpp
@@ -43,6 +45,7 @@ qt_add_qml_module(
     WindowSettingsSection.qml
     FontSettingsSection.qml
     ExperimentalSettingsSection.qml
+    SettingsUserInfoDialog.qml
     PluginSettingsSection.qml
     NetworkSettingsSection.qml
     ShortcutSettingsSection.qml
@@ -68,7 +71,8 @@ qt_add_resources(
 )
 target_link_libraries(
     echo_settings
-    PRIVATE echo_network
+    PRIVATE echo_account
+            echo_network
             echo_platform
             echo_logging
             echo_plugins

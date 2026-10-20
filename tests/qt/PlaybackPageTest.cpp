@@ -3,6 +3,7 @@
 #include "PlaybackService.h"
 #include "PlaybackRepository.h"
 #include "LyricLine.h"
+#include "BackgroundMesh.h"
 #include "LyricClock.h"
 #include "LyricSpring.h"
 #include "LyricTimeline.h"
@@ -11,6 +12,7 @@
 #include <QDataStream>
 #include <QTimer>
 #include <ctime>
+#include <array>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -267,7 +269,11 @@ struct Session
             return false;
         }
         window = qobject_cast<QQuickWindow *>(root.data());
-        return window && Test::prepareNativeInput(window);
+        const bool prepared = window && Test::prepareNativeInput(window);
+        if (!prepared && window)
+            qWarning() << "Native session precondition" << window->isVisible()
+                       << window->isExposed() << window->isActive();
+        return prepared;
     }
     QQuickItem *item(const QString &name)
     {
@@ -2335,16 +2341,18 @@ void PlaybackPageTest::backgroundMemoryAndLifecycle()
     QVERIFY(frame());
     sample("blur");
     const auto withinBudget = [&] {
-        auto *blur = background->findChild<QQuickItem *>("playbackBackgroundBlur");
+        auto *blur = background->findChild<QQuickItem *>("playbackBackgroundMesh");
+        if (!blur) // Read-only pre-change harness for the same-binary A/B measurement.
+            blur = background->findChild<QQuickItem *>("playbackBackgroundBlur");
         auto *texture = background->findChild<QQuickItem *>("playbackBackgroundTexture");
         if (!blur || !texture)
             return false;
         const auto pixels = texture->property("textureSize").toSize();
         qInfo() << "Native background allocation geometry" << blur->size() << "capture pixels"
                 << pixels << "DPR" << session.window->devicePixelRatio();
-        return qCeil(blur->width() * session.window->devicePixelRatio()) <= 512 &&
-               qCeil(blur->height() * session.window->devicePixelRatio()) <= 512 &&
-               pixels.width() <= 512 && pixels.height() <= 512 &&
+        return blur->width() * session.window->devicePixelRatio() <= 192.01 &&
+               blur->height() * session.window->devicePixelRatio() <= 192.01 &&
+               pixels.width() <= 192 && pixels.height() <= 192 &&
                !texture->property("live").toBool();
     };
     QTRY_VERIFY(withinBudget());
@@ -2418,7 +2426,7 @@ void PlaybackPageTest::backgroundMemoryAndLifecycle()
             QVERIFY2(error.description().contains("Cannot open"), qPrintable(error.toString()));
 }
 
-void PlaybackPageTest::backgroundBlurWidthAndRhythmBudget()
+void PlaybackPageTest::backgroundMeshQualityAndRhythmBudget()
 {
     Session session;
     QVERIFY(session.create(false, QStringLiteral("PlaybackBackgroundHarness.qml")));
@@ -2442,33 +2450,22 @@ void PlaybackPageTest::backgroundBlurWidthAndRhythmBudget()
     appearance->setBackgroundBlur(true);
     QTRY_VERIFY(background->property("blurReady").toBool());
     const auto captureDir = qEnvironmentVariable("ECHO_BACKGROUND_CAPTURE_DIR");
-    double firstWidth = 0;
     for (const auto size : {QSize(960, 600), QSize(1600, 1000), QSize(2048, 1152)}) {
         session.window->resize(size);
         QTest::qWait(200);
         const auto frame = session.window->grabWindow();
         QVERIFY(!frame.isNull());
-        const int y = frame.height() / 2;
-        const int dark = qGray(frame.pixel(frame.width() / 10, y));
-        const int light = qGray(frame.pixel(frame.width() * 9 / 10, y));
-        QVERIFY(light - dark > 110); // Preserve cover contrast instead of a flat fill.
-        int start = -1, end = -1;
-        for (int x = 0; x < frame.width(); ++x) {
-            const double level = (qGray(frame.pixel(x, y)) - dark) / double(light - dark);
-            if (start < 0 && level >= .1)
-                start = x;
-            if (end < 0 && level >= .9)
-                end = x;
-        }
-        QVERIFY(start >= 0 && end > start);
-        const double width = double(end - start) / frame.width();
-        qInfo() << "Background measured 10-90% edge width" << size << frame.size() << width;
-        // A broad, smooth transition at every window size, measured from native
-        // pixels. A bounded texture alone cannot detect weak blur or a stale resize.
-        QVERIFY(width >= .11 && width <= .15);
-        if (firstWidth)
-            QVERIFY(qAbs(width - firstWidth) < .005);
-        firstWidth = width;
+        int darkest = 255, lightest = 0;
+        for (int y = frame.height() / 4; y < frame.height() * 3 / 4; y += 4)
+            for (int x = 0; x < frame.width(); x += 4) {
+                const int value = qGray(frame.pixel(x, y));
+                darkest = std::min(darkest, value);
+                lightest = std::max(lightest, value);
+            }
+        // Preserve both cover regions through preprocessing and mesh cropping.
+        // Exact shape/softness is checked against the upstream renderer below.
+        qInfo() << "Mesh background luminance range" << size << darkest << lightest;
+        QVERIFY(lightest - darkest > 45);
         if (!captureDir.isEmpty()) {
             QDir().mkpath(captureDir);
             QVERIFY(frame.save(captureDir + QString("/edge-%1.png").arg(size.width())));
@@ -2526,19 +2523,132 @@ void PlaybackPageTest::backgroundBlurWidthAndRhythmBudget()
     const int reducedFrames = submissions();
     QTest::qWait(350);
     QCOMPARE(submissions(), reducedFrames);
-    QPointer<QQuickItem> composition =
-        background->findChild<QQuickItem *>("playbackBackgroundCompositionTexture");
-    QPointer<QQuickItem> horizontal =
-        background->findChild<QQuickItem *>("playbackBackgroundHorizontalTexture");
+    QPointer<QQuickItem> mesh = background->findChild<QQuickItem *>("playbackBackgroundMesh");
+    QPointer<QQuickItem> grading =
+        background->findChild<QQuickItem *>("playbackBackgroundGradingTexture");
     QPointer<QQuickItem> final = background->findChild<QQuickItem *>("playbackBackgroundTexture");
-    QVERIFY(composition && horizontal && final);
-    for (const auto &target : {composition, horizontal, final}) {
-        const auto size = target->property("textureSize").toSize();
-        QVERIFY(size.width() <= 192 && size.height() <= 192);
-        QVERIFY(!target->property("live").toBool());
-    }
+    QVERIFY(mesh && grading && final);
+    QCOMPARE(grading->property("textureSize").toSize(), QSize(32, 32));
+    const auto size = final->property("textureSize").toSize();
+    QVERIFY(size.width() <= 192 && size.height() <= 192);
+    QVERIFY(!final->property("live").toBool());
     appearance->setBackgroundBlur(false);
-    QTRY_VERIFY(composition.isNull() && horizontal.isNull() && final.isNull());
+    QTRY_VERIFY(mesh.isNull() && grading.isNull() && final.isNull());
+    QVERIFY(warnings.isEmpty());
+}
+
+void PlaybackPageTest::backgroundMeshReferenceAndCoverTransitions()
+{
+    Session session;
+    QVERIFY(session.create(false, QStringLiteral("PlaybackBackgroundHarness.qml")));
+    if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
+        QSKIP("Mesh renderer comparison requires native RHI");
+    QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+    session.theme.setMotionEnabled(false);
+    session.window->resize(960, 600);
+    QImage art(32, 32, QImage::Format_RGB32);
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 32; ++x)
+            art.setPixelColor(x, y, QColor(x * 8, y * 8, ((x / 8 + y / 8) % 2) * 200 + 30));
+    const auto path = session.directory.filePath("mesh-reference.png");
+    QVERIFY(art.save(path));
+    PlaybackServiceTestAccess::cover(session.playback, QUrl::fromLocalFile(path).toString());
+    auto *background = session.root->property("backgroundSurface").value<QQuickItem *>();
+    auto *appearance = session.playback.lyricAppearance();
+    appearance->setBackgroundBlur(true);
+    QTRY_VERIFY(background->property("blurReady").toBool());
+    QTest::qWait(200);
+    const auto captureDir = qEnvironmentVariable("ECHO_BACKGROUND_CAPTURE_DIR");
+    QJsonArray frames;
+    auto *mesh = background->findChild<BackgroundMesh *>();
+    QVERIFY(mesh);
+    mesh->setSeed(10957);
+    const auto points = QJsonArray::fromVariantList(mesh->controlPoints());
+    background->setProperty("phase", -1.0);
+    QFile fixture(":/qt/qml/EchoMusic/PlaybackPageTests/amll-background-observations.json");
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    const auto samples =
+        QJsonDocument::fromJson(fixture.readAll()).object().value("samples").toArray();
+    QCOMPARE(samples.size(), 7);
+    for (const auto &sampleValue : samples) {
+        const auto sample = sampleValue.toObject();
+        const double seconds = sample.value("seconds").toDouble();
+        const QSize target(sample.value("width").toInt(), sample.value("height").toInt());
+        session.window->resize(sample.value("viewportWidth").toInt(),
+                               sample.value("viewportHeight").toInt());
+        background->setProperty("phase", seconds);
+        QTest::qWait(80);
+        const auto frame = session.window->grabWindow();
+        QVERIFY(!frame.isNull());
+        const auto small = frame.scaled(target, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        const auto pixels = sample.value("pixels").toArray();
+        double totalError = 0;
+        int maxError = 0;
+        for (const auto &row : pixels) {
+            const auto p = row.toArray();
+            const auto native = small.pixelColor(p[0].toInt(), p[1].toInt());
+            const std::array<int, 3> rgb{native.red(), native.green(), native.blue()};
+            for (int c = 0; c < 3; ++c) {
+                const int error = qAbs(rgb[c] - p[c + 2].toInt());
+                totalError += error;
+                maxError = std::max(maxError, error);
+            }
+        }
+        const double mae = totalError / (pixels.size() * 3);
+        qInfo() << "AMLL mesh observed pixels" << seconds << "MAE" << mae << "max" << maxError;
+        QVERIFY(mae < 1.5);
+        QVERIFY(maxError <= 6);
+
+        if (!captureDir.isEmpty()) {
+            QDir().mkpath(captureDir);
+            const auto name = sample.value("file").toString();
+            QVERIFY(frame.save(captureDir + '/' + name));
+            frames.append(QJsonObject{{"seconds", seconds},
+                                      {"file", name},
+                                      {"width", target.width()},
+                                      {"height", target.height()},
+                                      {"viewportWidth", session.window->width()},
+                                      {"viewportHeight", session.window->height()}});
+        }
+    }
+    if (!captureDir.isEmpty()) {
+        QVERIFY(art.save(captureDir + "/mesh-input.png"));
+        QFile file(captureDir + "/mesh-reference.json");
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(QJsonDocument(QJsonObject{{"controlPoints", points},
+                                             {"frames", frames},
+                                             {"targetWidth", 192},
+                                             {"targetHeight", 120}})
+                       .toJson());
+    }
+    // A completed cover fades to its replacement in 500ms; repeated changes
+    // may never accumulate cover graphs or retain the retired GPU sources.
+    session.theme.setMotionEnabled(true);
+    const auto replacement = session.directory.filePath("replacement.png");
+    art.fill(QColor("#eb315c"));
+    QVERIFY(art.save(replacement));
+    QPointer<BackgroundMesh> oldMesh = mesh;
+    PlaybackServiceTestAccess::cover(session.playback, QUrl::fromLocalFile(replacement).toString());
+    QTRY_COMPARE(background->findChildren<BackgroundMesh *>().size(), 2);
+    QTest::qWait(180);
+    auto *surface = background->findChild<QQuickItem *>("playbackBackgroundSurface");
+    QVERIFY(surface);
+    const auto blend = surface->property("transition").toReal();
+    QVERIFY(blend > 0 && blend < 1);
+    QVERIFY(oldMesh);
+    QTRY_VERIFY(oldMesh.isNull());
+    QCOMPARE(background->findChildren<BackgroundMesh *>().size(), 1);
+    for (int i = 0; i < 12; ++i) {
+        PlaybackServiceTestAccess::cover(
+            session.playback, QUrl::fromLocalFile(i % 2 ? replacement : path).toString());
+        QTest::qWait(35);
+        QVERIFY(background->findChildren<BackgroundMesh *>().size() <= 2);
+    }
+    QTest::qWait(650);
+    QCOMPARE(background->findChildren<BackgroundMesh *>().size(), 1);
+    QPointer<BackgroundMesh> finalMesh = background->findChild<BackgroundMesh *>();
+    appearance->setBackgroundBlur(false);
+    QTRY_VERIFY(finalMesh.isNull());
     QVERIFY(warnings.isEmpty());
 }
 

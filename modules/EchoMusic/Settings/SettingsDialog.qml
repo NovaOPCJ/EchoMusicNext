@@ -25,6 +25,7 @@ Popup {
     property RelaunchService relaunch: null
     property ShortcutService shortcuts: null
     property AboutService about: null
+    property ExperimentalSettingsService experimental: null
     property SettingsDataService dataService: null
     readonly property SettingsCatalog catalog: navigation
     property bool searchExpanded: false
@@ -286,6 +287,7 @@ Popup {
                         if (navigation.current === "experimental") {
                             properties.logging = dialog.logging;
                             properties.relaunch = dialog.relaunch;
+                            properties.experimental = dialog.experimental;
                         }
                         setSource(targetSource, properties);
                     }

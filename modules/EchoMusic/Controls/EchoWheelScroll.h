@@ -14,6 +14,8 @@ class EchoWheelScrollAttached final : public QObject
     QML_ANONYMOUS
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
+    Q_PROPERTY(
+        bool motionEnabled READ motionEnabled WRITE setMotionEnabled NOTIFY motionEnabledChanged)
 public:
     explicit EchoWheelScrollAttached(QObject *parent);
     bool enabled() const
@@ -25,22 +27,35 @@ public:
         return m_animation.state() == QAbstractAnimation::Running;
     }
     void setEnabled(bool enabled);
+    bool motionEnabled() const
+    {
+        return m_motionEnabled;
+    }
+    void setMotionEnabled(bool enabled);
     Q_INVOKABLE bool scrollBy(qreal distance);
 signals:
     void enabledChanged();
     void runningChanged();
+    void motionEnabledChanged();
 private slots:
     void cancel();
+    void contentPositionChanged();
 
 private:
     bool eventFilter(QObject *object, QEvent *event) override;
     void observeWindow(QQuickWindow *window);
+    bool acceptsScroll() const;
+    void writePosition(qreal position);
+    void settleWithoutAnimation();
+    void updateMotionPreference(Qt::MotionPreference preference);
     QPointer<QQuickItem> m_view;
     QPointer<QQuickWindow> m_window;
     QVariantAnimation m_animation;
     qreal m_target = 0;
     bool m_enabled = true;
     bool m_writing = false;
+    bool m_motionEnabled = true;
+    bool m_reducedMotion = false;
 };
 class EchoWheelScroll final : public QObject
 {

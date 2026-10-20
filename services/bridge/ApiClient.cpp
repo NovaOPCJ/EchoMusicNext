@@ -142,6 +142,45 @@ quint64 ApiClient::registerDevice()
 {
     return submit({{"operation", "register_dev"}}, true, {AuthenticationMode::DeviceOnly});
 }
+QString ApiClient::diagnosticAuthorization() const
+{
+    QStringList parts;
+    const auto append = [&](const QString &key, const QString &value) {
+        if (!value.isEmpty())
+            parts.append(key + '=' + value);
+    };
+    append(QStringLiteral("token"), m_token);
+    if (m_userId)
+        append(QStringLiteral("userid"), QString::number(m_userId));
+    append(QStringLiteral("t1"), m_t1);
+    append(QStringLiteral("dfid"), m_device.dfid);
+    append(QStringLiteral("KUGOU_API_MID"), m_device.mid);
+    append(QStringLiteral("uuid"), m_device.uuid);
+    append(QStringLiteral("KUGOU_API_GUID"), m_device.guid);
+    append(QStringLiteral("KUGOU_API_DEV"), m_device.deviceName);
+    append(QStringLiteral("KUGOU_API_MAC"), m_device.mac);
+    return parts.join(';');
+}
+QVariantList ApiClient::diagnosticIdentityEntries() const
+{
+    QVariantList entries;
+    const auto append = [&](const QString &label, const QString &value) {
+        if (!value.isEmpty())
+            entries.append(QVariantMap{{"label", label}, {"value", value}});
+    };
+    // Explicit laboratory diagnostics only; ordinary account properties stay credential-free.
+    if (!m_token.isEmpty())
+        append(QStringLiteral("token"), m_token);
+    if (!m_t1.isEmpty())
+        append(QStringLiteral("t1"), m_t1);
+    append(QStringLiteral("dfid"), m_device.dfid);
+    append(QStringLiteral("mid"), m_device.mid);
+    append(QStringLiteral("uuid"), m_device.uuid);
+    append(QStringLiteral("guid"), m_device.guid);
+    append(QStringLiteral("dev"), m_device.deviceName);
+    append(QStringLiteral("mac"), m_device.mac);
+    return entries;
+}
 quint64 ApiClient::createQrLogin()
 {
     return submit({{"operation", "login_qr_key"}}, true, {AuthenticationMode::DeviceOnly});
@@ -1258,14 +1297,32 @@ void ApiClient::deliver(quint64 id, quint64 revision, int status, const QByteArr
     const auto category =
         QByteArray("echo.api.") + pending.request.value("operation").toString().toLatin1();
     const auto code = error.value("code");
-    QMessageLogger(nullptr, 0, nullptr, category.constData()).info().nospace()
-        << "request=" << id << " logical=" << original << " revision=" << revision
-        << " status=" << status << " kind="
-        << (status == EchoStatus::Success ? QStringLiteral("success")
-                                          : error.value("kind").toString())
-        << " code="
-        << (code.isDouble() ? QString::number(code.toInteger()) : QStringLiteral("none"))
-        << " retried=" << pending.retried;
+    const bool routine = status == EchoStatus::Success || status == EchoStatus::Cancelled;
+    QString summary = status == EchoStatus::Success     ? QStringLiteral("Request completed")
+                      : status == EchoStatus::Cancelled ? QStringLiteral("Request cancelled")
+                                                        : QStringLiteral("Request failed");
+    summary += QStringLiteral(" request=%1 session=%2").arg(original).arg(revision);
+    if (id != original)
+        summary += QStringLiteral(" native_request=%1").arg(id);
+    if (!routine) {
+        const auto statusName = status == EchoStatus::ApiFailure ? "api_failure"
+                                : status == EchoStatus::Internal ? "internal"
+                                : status == EchoStatus::Closed   ? "closed"
+                                                                 : "invalid_input";
+        summary += QStringLiteral(" status=%1").arg(QString::fromLatin1(statusName));
+        const auto kind = error.value("kind").toString();
+        if (!kind.isEmpty())
+            summary += QStringLiteral(" kind=%1").arg(kind);
+        if (code.isDouble())
+            summary += QStringLiteral(" code=%1").arg(code.toInteger());
+    }
+    if (pending.retried)
+        summary += QStringLiteral(" retried=true");
+    const QMessageLogger logger(nullptr, 0, nullptr, category.constData());
+    if (routine)
+        logger.debug().noquote() << summary;
+    else
+        logger.warning().noquote() << summary;
     if (status == EchoStatus::ApiFailure && error.value("kind") == QStringLiteral("challenge") &&
         pending.automaticVerification && !pending.verifiesRequest) {
         if (pending.retried) {

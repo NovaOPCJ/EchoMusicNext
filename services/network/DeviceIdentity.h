@@ -21,6 +21,8 @@ struct DeviceIdentity
     static DeviceIdentity load(QSettings &settings);
     static DeviceIdentity temporary();
     static bool saveRegistration(QSettings &settings, const DeviceIdentity &device);
+    /// Clear local identity and fence late registration writes until the next launch.
+    static bool resetOnRestart(QSettings &settings);
     static QString midForGuid(const QString &guid);
 };
 } // namespace EchoMusic

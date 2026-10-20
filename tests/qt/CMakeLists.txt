@@ -168,8 +168,25 @@ target_compile_definitions(
     PRIVATE ECHO_ICON_SOURCE_DIR="${PROJECT_SOURCE_DIR}/modules/EchoMusic/Controls/icons"
 )
 set_tests_properties(controls-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 45)
+add_test(
+    NAME controls-backdrop-software
+    COMMAND
+        echo-controls-ui-test backdropSourceIsWindowLocalAndReleasedWhenHidden
+        backdropSamplerTracksBothItemTrees floatingSurfaceMatchesRendererCapabilities
+        floatingFrostSamplesTheSceneAndStopsOnHide floatingEffectsAreOwnedByVisibleSurfaces
+)
+set_tests_properties(
+    controls-backdrop-software
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30
+)
 
 qt_add_executable(echo-shell-test ShellTest.cpp)
+qt_add_executable(echo-window-resize-test WindowResizeTest.cpp)
+target_link_libraries(echo-window-resize-test PRIVATE echo_window_resize Qt6::Qml Qt6::Test)
+add_test(NAME window-resize-sync COMMAND echo-window-resize-test)
+set_tests_properties(
+    window-resize-sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
 qt_add_executable(echo-native-menus-test NativeMenusTest.cpp)
 if(APPLE)
     target_sources(echo-native-menus-test PRIVATE ../../app/assets/icon.icns)
@@ -549,6 +566,7 @@ qt_add_qml_module(
     amll-motion-observations.json
     amll-interlude-observations.json
     amll-timeline-observations.json
+    amll-background-observations.json
 )
 target_link_libraries(
     echo-playback-page-test
@@ -1021,3 +1039,20 @@ set_tests_properties(
     playback-source-fallback PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 90
 )
 echo_copy_rust_runtime(echo-playback-source-fallback-test)
+
+qt_add_executable(echo-experimental-settings-test ExperimentalSettingsTest.cpp)
+target_link_libraries(
+    echo-experimental-settings-test
+    PRIVATE echo_settings
+            echo_account
+            echo_storage
+            echo_platform
+            Qt6::Qml
+            Qt6::Test
+            Qt6::Gui
+)
+add_test(NAME experimental-settings COMMAND echo-experimental-settings-test)
+set_tests_properties(
+    experimental-settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+)
+echo_copy_rust_runtime(echo-experimental-settings-test)

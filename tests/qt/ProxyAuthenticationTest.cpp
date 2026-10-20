@@ -132,8 +132,8 @@ bool validNtlmProof(const QByteArray &message)
         QByteArray::fromHex("0123456789abcdef") + response.mid(16), key, QCryptographicHash::Md5);
     return response.left(16) == proof;
 }
-bool validDigest(const QByteArray &authorization, const QByteArray &method = "CONNECT",
-                 const QByteArray &uri = "never-resolve.invalid:443")
+bool validDigest(const QByteArray &authorization, const QByteArray &method, const QByteArray &uri,
+                 const QByteArray &username, const QByteArray &expectedAlgorithm)
 {
     if (!authorization.startsWith("Digest "))
         return false;
@@ -152,13 +152,13 @@ bool validDigest(const QByteArray &authorization, const QByteArray &method = "CO
     auto origin = QUrl::fromEncoded(uri).toEncoded(QUrl::RemoveScheme | QUrl::RemoveAuthority);
     const bool sameResource =
         values["uri"] == uri || (uri.startsWith("http://") && values["uri"] == origin);
-    if (values["username"] != "Domain\\User" || values["realm"] != "echo-test" ||
+    if (values["username"] != username || values["realm"] != "echo-test" ||
         values["nonce"] != "test-nonce" || !sameResource || values["qop"] != "auth" ||
         values["nc"] != "00000001" || values["cnonce"].isEmpty()) {
         return false;
     }
     const auto algorithm = values.value("algorithm", "MD5").toUpper();
-    if (algorithm != "MD5" && algorithm != "SHA-256")
+    if (algorithm != expectedAlgorithm)
         return false;
     const auto hash = [&](const QByteArray &bytes) {
         return QCryptographicHash::hash(bytes, algorithm == "SHA-256" ? QCryptographicHash::Sha256
@@ -166,7 +166,7 @@ bool validDigest(const QByteArray &authorization, const QByteArray &method = "CO
             .toHex();
     };
     const auto expected =
-        hash(hash("Domain\\User:echo-test:Password") + ":test-nonce:" + values["nc"] + ':' +
+        hash(hash(username + ":echo-test:Password") + ":test-nonce:" + values["nc"] + ':' +
              values["cnonce"] + ":auth:" + hash(method + ':' + values["uri"]));
     return values["response"] == expected;
 }
@@ -522,7 +522,8 @@ private slots:
                 for (const auto &line : request.split('\n'))
                     if (line.toLower().startsWith("proxy-authorization:"))
                         authorization = line.mid(line.indexOf(':') + 1).trimmed();
-                if (!validDigest(authorization, "POST", "http://never-resolve.invalid/early")) {
+                if (!validDigest(authorization, "POST", "http://never-resolve.invalid/early",
+                                 "Domain\\User", "SHA-256")) {
                     // Reject on headers, without consuming the unfinished upload.
                     ++challenges;
                     *rejected = true;
@@ -642,19 +643,28 @@ private slots:
     void httpAuthentication_data()
     {
         QTest::addColumn<QByteArray>("method");
+        QTest::addColumn<QByteArray>("username");
         QTest::addColumn<bool>("tls");
         QTest::addColumn<QByteArray>("verb");
         for (const auto &method : {QByteArray("Basic"), QByteArray("Digest"),
                                    QByteArray("Digest-SHA256"), QByteArray("NTLM")})
-            for (const bool tls : {false, true})
-                for (const auto &verb :
-                     {QByteArray("GET"), QByteArray("POST"), QByteArray("PATCH")})
-                    QTest::newRow((method + (tls ? "-tls-" : "-tcp-") + verb).constData())
-                        << method << tls << verb;
+            for (const auto &username :
+                 (method.startsWith("Digest")
+                      ? QList<QByteArray>{"Domain\\User", "Domain/User", "alice"}
+                      : QList<QByteArray>{"Domain\\User"}))
+                for (const bool tls : {false, true})
+                    for (const auto &verb :
+                         {QByteArray("GET"), QByteArray("POST"), QByteArray("PATCH")})
+                        QTest::newRow(
+                            (method + (username == "Domain\\User" ? QByteArray() : "-" + username) +
+                             (tls ? "-tls-" : "-tcp-") + verb)
+                                .constData())
+                            << method << username << tls << verb;
     }
     void httpAuthentication()
     {
         QFETCH(QByteArray, method);
+        QFETCH(QByteArray, username);
         QFETCH(bool, tls);
         QFETCH(QByteArray, verb);
         const auto originalSsl = QSslConfiguration::defaultConfiguration();
@@ -699,7 +709,8 @@ private slots:
                                 "Basic " + QByteArray("Domain\\User:Password").toBase64();
                         challenge += " realm=\"echo-test\"";
                     } else if ((method == "Digest" || method == "Digest-SHA256")) {
-                        valid = validDigest(authorization, verb, target);
+                        valid = validDigest(authorization, verb, target, username,
+                                            method == "Digest-SHA256" ? "SHA-256" : "MD5");
                         challenge = "Digest realm=\"echo-test\", nonce=\"test-nonce\", "
                                     "qop=\"auth\", algorithm=" +
                                     QByteArray(method == "Digest-SHA256" ? "SHA-256" : "MD5");
@@ -736,7 +747,7 @@ private slots:
         config.mode = NetworkConfiguration::Mode::FixedServers;
         config.proxyRules =
             QString(tls ? "https://localhost:%1" : "http://localhost:%1").arg(proxy->serverPort());
-        config.username = "Domain\\User";
+        config.username = QString::fromLatin1(username);
         transport.apply(config, "Password");
         QTcpSocket client;
         client.setProxy(QNetworkProxy::NoProxy);
@@ -913,24 +924,32 @@ private slots:
     void connectAuthentication_data()
     {
         QTest::addColumn<QByteArray>("method");
+        QTest::addColumn<QByteArray>("username");
         QTest::addColumn<bool>("tls");
         QTest::addColumn<bool>("reject");
         QTest::addColumn<QByteArray>("authority");
         for (const auto &method : {QByteArray("Basic"), QByteArray("Digest"),
                                    QByteArray("Digest-SHA256"), QByteArray("NTLM")})
-            for (const bool tls : {false, true})
-                for (const bool reject : {false, true})
-                    for (const auto &authority :
-                         {QByteArray("never-resolve.invalid:443"), QByteArray("[2001:db8::1]:443")})
-                        QTest::newRow((method + (tls ? "-tls" : "-tcp") +
-                                       (reject ? "-reject" : "-accept") +
-                                       (authority.startsWith('[') ? "-ipv6" : "-name"))
-                                          .constData())
-                            << method << tls << reject << authority;
+            for (const auto &username :
+                 (method.startsWith("Digest")
+                      ? QList<QByteArray>{"Domain\\User", "Domain/User", "alice"}
+                      : QList<QByteArray>{"Domain\\User"}))
+                for (const bool tls : {false, true})
+                    for (const bool reject : {false, true})
+                        for (const auto &authority : {QByteArray("never-resolve.invalid:443"),
+                                                      QByteArray("[2001:db8::1]:443")})
+                            QTest::newRow(
+                                (method +
+                                 (username == "Domain\\User" ? QByteArray() : "-" + username) +
+                                 (tls ? "-tls" : "-tcp") + (reject ? "-reject" : "-accept") +
+                                 (authority.startsWith('[') ? "-ipv6" : "-name"))
+                                    .constData())
+                                << method << username << tls << reject << authority;
     }
     void connectAuthentication()
     {
         QFETCH(QByteArray, method);
+        QFETCH(QByteArray, username);
         QFETCH(bool, tls);
         QFETCH(bool, reject);
         QFETCH(QByteArray, authority);
@@ -970,7 +989,8 @@ private slots:
                                 "Basic " + QByteArray("Domain\\User:Password").toBase64();
                         challenge += " realm=\"echo-test\"";
                     } else if ((method == "Digest" || method == "Digest-SHA256")) {
-                        valid = validDigest(authorization, "CONNECT", authority);
+                        valid = validDigest(authorization, "CONNECT", authority, username,
+                                            method == "Digest-SHA256" ? "SHA-256" : "MD5");
                         challenge = "Digest realm=\"echo-test\", nonce=\"test-nonce\", "
                                     "qop=\"auth\", algorithm=" +
                                     QByteArray(method == "Digest-SHA256" ? "SHA-256" : "MD5");
@@ -1005,7 +1025,7 @@ private slots:
         config.mode = NetworkConfiguration::Mode::FixedServers;
         config.proxyRules =
             QString(tls ? "https://localhost:%1" : "http://localhost:%1").arg(proxy->serverPort());
-        config.username = "Domain\\User";
+        config.username = QString::fromLatin1(username);
         transport.apply(config, "Password");
         QTcpSocket client;
         client.setProxy(QNetworkProxy::NoProxy);

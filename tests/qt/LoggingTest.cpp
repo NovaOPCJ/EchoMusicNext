@@ -1,6 +1,7 @@
 #include "LogService.h"
 #include "ApiClient.h"
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QTemporaryDir>
 #include <QJsonDocument>
@@ -12,11 +13,137 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QDateTime>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QLockFile>
 using namespace EchoMusic;
+namespace
+{
+const QRegularExpression &linePattern()
+{
+    static const QRegularExpression pattern(
+        R"(^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?:INFO |WARN |ERROR|DEBUG|FATAL) \[[^\]\r\n]+\] .*$)");
+    return pattern;
+}
+} // namespace
 class LoggingTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void consoleAndFileUseIdenticalLocalSingleLineRecords()
+    {
+        QTemporaryDir directory;
+        const auto before = QDateTime::currentDateTime();
+        QProcess child;
+        child.start(QCoreApplication::applicationFilePath(), {"--format-probe", directory.path()});
+        QVERIFY(child.waitForFinished(10000));
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(child.exitCode(), 0);
+        const auto files = QDir(directory.path()).entryList({"*.log"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QVERIFY(QRegularExpression(
+                    R"(^echomusicnext-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}-\d+\.log$)")
+                    .match(files.first())
+                    .hasMatch());
+        QFile file(directory.filePath(files.first()));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto bytes = file.readAll();
+        QCOMPARE(child.readAllStandardError(), bytes);
+        QVERIFY(bytes.contains("format-probe 中文\\nnext\\r\\t\\u001b[31m"));
+        QVERIFY(!bytes.contains("do-not-store"));
+        QVERIFY(bytes.contains("[redacted sensitive log]"));
+        const auto pattern = linePattern();
+        for (const auto &line : bytes.split('\n')) {
+            if (line.isEmpty())
+                continue;
+            const auto match = pattern.match(QString::fromUtf8(line));
+            QVERIFY2(match.hasMatch(), line.constData());
+            const auto time = QDateTime::fromString(match.captured(1), "yyyy-MM-dd HH:mm:ss.zzz");
+            QVERIFY(time.isValid());
+            QVERIFY(time >= before && time <= QDateTime::currentDateTime());
+        }
+        const auto sample = qEnvironmentVariable("ECHO_LOG_SAMPLE");
+        if (!sample.isEmpty()) {
+            QFile output(sample);
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            QCOMPARE(output.write(bytes), bytes.size());
+        }
+    }
+    void startupRetentionKeepsLiveAndUnrelatedFiles_data()
+    {
+        QTest::addColumn<int>("days");
+        QTest::newRow("default-seven-days") << 7;
+        QTest::newRow("custom-three-days") << 3;
+        QTest::newRow("invalid-uses-seven-days") << 0;
+    }
+    void startupRetentionKeepsLiveAndUnrelatedFiles()
+    {
+        QFETCH(int, days);
+        QTemporaryDir directory;
+        const auto make = [&](const QString &name, int age) {
+            const auto path = directory.filePath(name);
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly) || file.write("retention fixture") < 0)
+                return false;
+            return file.flush() && file.setFileTime(QDateTime::currentDateTime().addDays(-age),
+                                                    QFileDevice::FileModificationTime);
+        };
+        const QString expired = "echomusicnext-2026-01-01_01-02-03-004-99111.log";
+        const QString rotated = "echomusicnext-2026-01-01_01-02-03-004-99111.2.log";
+        const QString legacy = "echomusicnext-99112.log";
+        const QString recent = "echomusicnext-99113.log";
+        const QString middle = "echomusicnext-99115.log";
+        const QString active = "echomusicnext-99114.log";
+        const QString activeSegment = "echomusicnext-99114.1.log";
+        for (const auto &name :
+             {expired, rotated, legacy, active, activeSegment, QString("notes.log"),
+              QString("echomusicnext-notes.log"), QString("crashes/keep.log")})
+            QVERIFY(make(name, 8));
+        QVERIFY(make(recent, 1));
+        QVERIFY(make(middle, 4));
+        QLockFile activeLease(directory.filePath(active + ".lock"));
+        activeLease.setStaleLockTime(0);
+        QVERIFY(activeLease.tryLock(0));
+        // Older running releases have only their CrashDiagnostics session lease.
+        const auto prior = QString("echomusicnext-%1.log").arg(QCoreApplication::applicationPid());
+        QVERIFY(make(prior, 8));
+        QLockFile priorLease(directory.filePath("crashes/prior.running"));
+        QVERIFY(priorLease.tryLock(0));
+        QSettings preferences(directory.filePath("settings.ini"), QSettings::IniFormat);
+        if (days != 7)
+            preferences.setValue("logging/retentionDays", days);
+        {
+            LogService logging(directory.path(), 2, false, &preferences);
+        } // Destruction joins the worker, including startup cleanup.
+        for (const auto &name : {expired, rotated, legacy})
+            QVERIFY(!QFile::exists(directory.filePath(name)));
+        for (const auto &name : {recent, active, activeSegment, prior, QString("notes.log"),
+                                 QString("echomusicnext-notes.log"), QString("crashes/keep.log")})
+            QVERIFY(QFile::exists(directory.filePath(name)));
+        QCOMPARE(QFile::exists(directory.filePath(middle)), days != 3);
+        QVERIFY(QFile::exists(directory.filePath("crashes/prior.running")));
+    }
+    void successfulApiRequestsAreQuietAtInfo()
+    {
+        QTemporaryDir directory;
+        {
+            LogService logging(directory.path(), 2, false);
+            ApiClient api(DeviceIdentity::temporary());
+            QSignalSpy success(&api, &ApiClient::succeeded);
+            QVERIFY(api.capabilities());
+            QTRY_COMPARE(success.size(), 1);
+            qInfo("important-lifecycle-message");
+        }
+        const auto files = QDir(directory.path()).entryList({"*.log"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QFile file(directory.filePath(files.first()));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto bytes = file.readAll();
+        QVERIFY(bytes.contains("important-lifecycle-message"));
+        QVERIFY(!bytes.contains("echo.api.capabilities"));
+        QVERIFY(!bytes.contains("native.api"));
+    }
     void preferenceFailureRetryAndExplicitLaunchOverride()
     {
         QTemporaryDir directory;
@@ -117,6 +244,9 @@ private slots:
         QVERIFY(bytes.contains("visible-during-diagnostics"));
         QVERIFY(bytes.contains("useful response detail"));
         QVERIFY(bytes.contains("native.api.response"));
+        QVERIFY(bytes.contains("WARN  [echo.api."));
+        QVERIFY(bytes.contains("Request failed"));
+        QVERIFY(bytes.contains("status=api_failure"));
         for (const auto &secret : {"response-secret", "refresh-secret", "signed.invalid",
                                    "hidden-before-live-change", "hidden-after-diagnostics"})
             QVERIFY(!bytes.contains(secret));
@@ -190,9 +320,7 @@ private slots:
         for (const auto &line : text.split('\n')) {
             if (line.isEmpty())
                 continue;
-            const auto record = QJsonDocument::fromJson(line).object();
-            QVERIFY(record.contains("timestamp"));
-            QVERIFY(record.contains("level"));
+            QVERIFY2(linePattern().match(QString::fromUtf8(line)).hasMatch(), line.constData());
         }
     }
     void qtDebugIsFilteredAndRotationRetainsWholeRecords()
@@ -222,11 +350,23 @@ private slots:
             last = last || bytes.contains("last-record-after-rotation");
             for (const auto &line : bytes.split('\n')) {
                 if (!line.isEmpty())
-                    QVERIFY(QJsonDocument::fromJson(line).isObject());
+                    QVERIFY2(linePattern().match(QString::fromUtf8(line)).hasMatch(),
+                             line.constData());
             }
         }
         QVERIFY(last);
     }
 };
-QTEST_GUILESS_MAIN(LoggingTest)
+int main(int argc, char **argv)
+{
+    QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 3 && app.arguments().at(1) == "--format-probe") {
+        LogService logging(app.arguments().at(2), 3, true);
+        qInfo().noquote() << QString::fromUtf8("format-probe 中文\nnext\r\t\x1b[31m");
+        qWarning("password=do-not-store");
+        return 0;
+    }
+    LoggingTest test;
+    return QTest::qExec(&test, argc, argv);
+}
 #include "LoggingTest.moc"

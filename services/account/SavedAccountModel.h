@@ -41,6 +41,10 @@ public:
     {
         return m_operation.has_value() || !m_queue.isEmpty();
     }
+    bool ready() const
+    {
+        return m_ready && !m_closing;
+    }
     QString errorMessage() const
     {
         return m_error;

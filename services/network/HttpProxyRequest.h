@@ -1,10 +1,8 @@
-// Keeps windows.h's min()/max() macros out of this translation unit: the
-// proxy transport is reached through curl, whose header pulls in the
-// Windows headers before any local source can.
-#ifndef NOMINMAX
+#pragma once
+// curl.h includes Windows headers before callers can suppress min/max macros.
+#if defined(_WIN32) && !defined(NOMINMAX)
 #define NOMINMAX
 #endif
-#pragma once
 #include "HttpRequestBody.h"
 #include "NetworkConfiguration.h"
 #include <QObject>

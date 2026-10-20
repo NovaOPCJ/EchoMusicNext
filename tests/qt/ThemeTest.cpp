@@ -2,6 +2,7 @@
 #include "AccentPalette.h"
 #include "NativeWindow.h"
 #include "EchoColorValue.h"
+#include "EchoPageScrollMetrics.h"
 #include "RouteController.h"
 #include "SearchRouteCoordinator.h"
 #include "SearchModel.h"
@@ -370,6 +371,37 @@ private slots:
                 }
             }
         }
+    }
+    void statelessControlSingletonsAreOwnedByEachEngine()
+    {
+        QPointer<EchoColorValue> color;
+        QPointer<EchoPageScrollMetrics> metrics;
+        {
+            QQmlEngine first, second;
+            color =
+                first.singletonInstance<EchoColorValue *>("EchoMusic.Controls", "EchoColorValue");
+            metrics = first.singletonInstance<EchoPageScrollMetrics *>("EchoMusic.Controls",
+                                                                       "EchoPageScrollMetrics");
+            QVERIFY(color);
+            QVERIFY(metrics);
+            QCOMPARE(color->parent(), &first);
+            QCOMPARE(metrics->parent(), &first);
+            QCOMPARE(
+                first.singletonInstance<EchoColorValue *>("EchoMusic.Controls", "EchoColorValue"),
+                color.data());
+            auto *otherColor =
+                second.singletonInstance<EchoColorValue *>("EchoMusic.Controls", "EchoColorValue");
+            auto *otherMetrics = second.singletonInstance<EchoPageScrollMetrics *>(
+                "EchoMusic.Controls", "EchoPageScrollMetrics");
+            QVERIFY(otherColor && otherColor != color);
+            QVERIFY(otherMetrics && otherMetrics != metrics);
+            QCOMPARE(otherColor->parent(), &second);
+            QCOMPARE(otherMetrics->parent(), &second);
+            QCOMPARE(color->normalize("#abc"), QString("#aabbcc"));
+            QVERIFY(metrics->wheelStep() > 0);
+        }
+        QVERIFY(color.isNull());
+        QVERIFY(metrics.isNull());
     }
     void engineBindingsAreIsolatedAndBorrowTheStore()
     {

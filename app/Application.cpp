@@ -50,6 +50,7 @@
 #include "PlaylistMutationService.h"
 #include "UserPlaylistModel.h"
 #include "DeviceRegistrationService.h"
+#include "ExperimentalSettingsService.h"
 #include "NetworkPreferences.h"
 #include "LogService.h"
 #include "StorageService.h"
@@ -468,6 +469,15 @@ int EchoMusic::Application::run()
         [&](const EchoMusic::ShareTarget &target) { return pluginManager.openShare(target); });
     EchoMusic::SettingsDataService settingsData(settings, plugins, relaunch, network,
                                                 applicationData, about.version());
+    EchoMusic::ExperimentalSettingsService experimentalSettings(api, account, savedAccounts,
+                                                                settings, relaunch);
+    experimentalSettings.setMaintenanceGuard([&] { return !settingsData.busy(); });
+    QObject::connect(&experimentalSettings, &EchoMusic::ExperimentalSettingsService::notice,
+                     &shellController, [&](const QString &message, bool failure) {
+                         shellController.toasts()->show(message,
+                                                        failure ? EchoMusic::ToastService::Warning
+                                                                : EchoMusic::ToastService::Success);
+                     });
     if (m_instance)
         settingsData.setInstanceLockFilePath(m_instance->lockFilePath());
     settingsData.setMaintenanceGuard([&] {
@@ -837,6 +847,8 @@ int EchoMusic::Application::run()
          {QStringLiteral("pluginManager"), QVariant::fromValue(&pluginManager)},
          {QStringLiteral("shortcutService"), QVariant::fromValue(&shortcuts)},
          {QStringLiteral("aboutService"), QVariant::fromValue(&about)},
+         {QStringLiteral("experimentalSettingsService"),
+          QVariant::fromValue(&experimentalSettings)},
          {QStringLiteral("settingsDataService"), QVariant::fromValue(&settingsData)},
          {QStringLiteral("networkPreferences"), QVariant::fromValue(&network)},
          {QStringLiteral("logService"), QVariant::fromValue(m_logging)},

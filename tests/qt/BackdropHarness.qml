@@ -9,8 +9,11 @@ Window {
     height: 320
     visible: true
     color: "black"
+    property real sourceOffset: 0
     EchoBackdropRoot {
-        anchors.fill: parent
+        x: window.sourceOffset
+        width: window.width
+        height: window.height
         Rectangle {
             width: parent.width / 2
             height: parent.height

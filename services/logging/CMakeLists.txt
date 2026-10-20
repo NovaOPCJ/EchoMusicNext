@@ -1,6 +1,6 @@
 add_library(
-    echo_crash_diagnostics STATIC CrashDiagnostics.cpp CrashDiagnostics.h LogRedaction.cpp
-                                  LogRedaction.h
+    echo_crash_diagnostics STATIC CrashDiagnostics.cpp CrashDiagnostics.h LogFiles.cpp LogFiles.h
+                                  LogRedaction.cpp LogRedaction.h
 )
 target_include_directories(
     echo_crash_diagnostics

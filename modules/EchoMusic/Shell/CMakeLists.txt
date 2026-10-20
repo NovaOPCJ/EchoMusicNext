@@ -1,3 +1,14 @@
+add_library(echo_window_resize STATIC WindowResizeSync.h WindowResizeSync.cpp)
+target_include_directories(echo_window_resize PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    echo_window_resize
+    PUBLIC Qt6::Quick
+    PRIVATE echo_build_options
+)
+if(WIN32)
+    target_link_libraries(echo_window_resize PRIVATE dwmapi comctl32 user32)
+endif()
+
 qt_add_qml_module(
     echo_shell
     STATIC
@@ -82,6 +93,7 @@ target_link_libraries(
     echo_shell
     PUBLIC Qt6::Quick echo_platform echo_playback_service
     PRIVATE echo_playback
+            echo_window_resize
             echo_playbackplugin
             echo_build_options
             echo_theme

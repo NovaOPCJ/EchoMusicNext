@@ -1,6 +1,7 @@
 #include "LogService.h"
 #include "CrashDiagnostics.h"
 #include "LogRedaction.h"
+#include "LogFiles.h"
 #include "echo_ffi.h"
 #include <QStandardPaths>
 #include <QDebug>
@@ -12,18 +13,19 @@
 #include <QFile>
 #include <QDir>
 #include <QDateTime>
-#include <QJsonObject>
-#include <QJsonDocument>
+#include <QTimeZone>
+#include <QLockFile>
+#include <QRegularExpression>
+#include <QSet>
 #include <QCoreApplication>
 #include <QDesktopServices>
-#include <QJsonArray>
-#include <QJsonValue>
 #include <atomic>
 #include <deque>
 #include <cstdio>
 
 namespace EchoMusic
 {
+Q_LOGGING_CATEGORY(loggingLog, "echo.logging")
 namespace
 {
 constexpr size_t capacity = 512;
@@ -49,9 +51,33 @@ uint32_t logLevel(QtMsgType type)
            : (type == QtCriticalMsg || type == QtFatalMsg) ? 0
                                                            : 2;
 }
-const char *levelName(uint32_t level)
+const char *levelName(uint32_t level, bool fatal)
 {
-    return level == 0 ? "error" : level == 1 ? "warn" : level == 3 ? "debug" : "info";
+    return fatal        ? "FATAL"
+           : level == 0 ? "ERROR"
+           : level == 1 ? "WARN"
+           : level == 3 ? "DEBUG"
+                        : "INFO";
+}
+QString singleLine(const QString &text)
+{
+    QString result;
+    result.reserve(text.size());
+    for (const auto c : text) {
+        const auto value = c.unicode();
+        if (c == u'\n')
+            result += QStringLiteral("\\n");
+        else if (c == u'\r')
+            result += QStringLiteral("\\r");
+        else if (c == u'\t')
+            result += QStringLiteral("\\t");
+        else if (value < 0x20 || (value >= 0x7f && value <= 0x9f) || value == 0x2028 ||
+                 value == 0x2029)
+            result += QStringLiteral("\\u%1").arg(quint32(value), 4, 16, QLatin1Char('0'));
+        else
+            result += c;
+    }
+    return result;
 }
 struct Record
 {
@@ -59,6 +85,7 @@ struct Record
     uint32_t level;
     QString target;
     QString message;
+    bool fatal = false;
 };
 } // namespace
 // The QThread object is host-owned, not used as a worker QObject. Only run()
@@ -66,8 +93,9 @@ struct Record
 class LogSink final : public QThread
 {
 public:
-    LogSink(QString directory, int level, bool console)
-        : m_directory(std::move(directory)), m_level(level), m_console(console)
+    LogSink(QString directory, int level, bool console, int retentionDays)
+        : m_directory(std::move(directory)), m_level(level), m_console(console),
+          m_retentionDays(retentionDays)
     {
     }
     void setLevel(int level, qint64 diagnosticUntil)
@@ -75,16 +103,10 @@ public:
         m_diagnosticUntil.store(diagnosticUntil, std::memory_order_relaxed);
         m_level.store(level, std::memory_order_relaxed);
     }
-    void enqueue(uint32_t level, const QString &target, const QString &message, qint64 time = 0)
+    void enqueue(uint32_t level, const QString &target, const QString &message, qint64 time = 0,
+                 bool fatal = false)
     {
-        const auto now = QDateTime::currentMSecsSinceEpoch();
-        const auto base = m_level.load(std::memory_order_relaxed);
-        // The GUI's countdown timer may be delayed by a busy window. Enforce
-        // expiry at ingestion as well, so diagnostics never extend past the
-        // saved deadline merely because its next UI timer tick is pending.
-        const auto threshold =
-            now < m_diagnosticUntil.load(std::memory_order_relaxed) ? qMax(3, base) : base;
-        if (int(level) > threshold)
+        if (!accepts(level))
             return;
         if (!m_mutex.tryLock()) {
             m_dropped.fetch_add(1);
@@ -93,7 +115,8 @@ public:
         if (!m_stopping && m_queue.size() < capacity) {
             m_queue.push_back(
                 {time ? time : QDateTime::currentMSecsSinceEpoch(), level, target.left(80),
-                 message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message});
+                 message.size() > 8192 ? QStringLiteral("[oversized log omitted]") : message,
+                 fatal});
             m_ready.wakeOne();
         } else {
             m_dropped.fetch_add(1);
@@ -115,17 +138,46 @@ protected:
     {
         QDir directory(m_directory);
         bool fileAlive = directory.mkpath(QStringLiteral("."));
+        const auto path = directory.filePath(sessionLogFileName());
+        QLockFile active(path + QStringLiteral(".lock"));
+        active.setStaleLockTime(0);
+        fileAlive = fileAlive && active.tryLock(0);
+        int removed = 0, cleanupFailures = 0;
         if (fileAlive) {
-            // Seven-day retention, matching the reference. Each instance owns
-            // its PID-named active file so concurrent launches do not rotate it.
-            const auto files =
-                directory.entryInfoList({QStringLiteral("echomusicnext-*.log")}, QDir::Files);
-            for (const auto &file : files)
-                if (file.lastModified().secsTo(QDateTime::currentDateTime()) > 7 * 86400)
-                    QFile::remove(file.absoluteFilePath());
+            // Releases using PID-only filenames have a crash-session lease but
+            // no log lease. Read it without acquiring/removing crash artifacts.
+            QSet<qint64> livePids;
+            const QDir crashes(directory.filePath("crashes"));
+            for (const auto &name : crashes.entryList({"*.running"}, QDir::Files)) {
+                QLockFile lease(crashes.filePath(name));
+                qint64 pid = 0;
+                QString host, application;
+                if (lease.getLockInfo(&pid, &host, &application))
+                    livePids.insert(pid);
+            }
+            // Only this logger's top-level files, including old PID filenames
+            // and rotated segments. A session lease protects every segment of
+            // another live process even if it has been quiet past the cutoff.
+            const QRegularExpression owned(
+                R"(^(echomusicnext-(?:\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}-)?(\d+))(?:\.\d+)?\.log$)");
+            const auto cutoff = QDateTime::currentDateTime().addDays(-m_retentionDays);
+            const auto files = directory.entryInfoList({QStringLiteral("echomusicnext-*.log")},
+                                                       QDir::Files | QDir::NoSymLinks);
+            for (const auto &file : files) {
+                const auto match = owned.match(file.fileName());
+                if (!match.hasMatch() || file.lastModified() >= cutoff ||
+                    livePids.contains(match.captured(2).toLongLong()))
+                    continue;
+                QLockFile lease(directory.filePath(match.captured(1) + ".log.lock"));
+                lease.setStaleLockTime(0);
+                if (!lease.tryLock(0))
+                    continue;
+                if (QFile::remove(file.absoluteFilePath()))
+                    ++removed;
+                else if (QFile::exists(file.absoluteFilePath()))
+                    ++cleanupFailures;
+            }
         }
-        const QString path = directory.filePath(
-            QStringLiteral("echomusicnext-%1.log").arg(QCoreApplication::applicationPid()));
         QFile file(path);
         fileAlive = fileAlive && file.open(QIODevice::WriteOnly | QIODevice::Append);
         bool consoleAlive = m_console;
@@ -139,15 +191,17 @@ protected:
         if (!fileAlive)
             failure("EchoMusicNext: log file unavailable; console logging continues\n");
         const auto write = [&](const Record &record) {
-            const auto stamp =
-                QDateTime::fromMSecsSinceEpoch(record.time).toUTC().toString(Qt::ISODateWithMs);
+            const auto stamp = QDateTime::fromMSecsSinceEpoch(record.time)
+                                   .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
+            // One physical UTF-8 line in both destinations. Redact before escaping
+            // control characters so multiline messages cannot forge log records
+            // or inject terminal escape sequences.
             auto bytes =
-                QJsonDocument(QJsonObject{{"timestamp", stamp},
-                                          {"pid", QCoreApplication::applicationPid()},
-                                          {"level", QString::fromLatin1(levelName(record.level))},
-                                          {"target", record.target},
-                                          {"message", safeLogMessage(record.message)}})
-                    .toJson(QJsonDocument::Compact);
+                (stamp + ' ' +
+                 QString::fromLatin1(levelName(record.level, record.fatal)).leftJustified(5) +
+                 " [" + singleLine(record.target) + "] " +
+                 singleLine(safeLogMessage(record.message)))
+                    .toUtf8();
             bytes.append('\n');
             if (fileAlive && file.size() > 0 && file.size() + bytes.size() > fileLimit) {
                 file.flush();
@@ -177,6 +231,14 @@ protected:
             if (consoleAlive)
                 std::fflush(stderr);
         };
+        if (removed && accepts(2))
+            write({QDateTime::currentMSecsSinceEpoch(), 2, QStringLiteral("echo.logging"),
+                   QStringLiteral("Removed %1 expired log files (retention_days=%2)")
+                       .arg(removed)
+                       .arg(m_retentionDays)});
+        if (cleanupFailures && accepts(1))
+            write({QDateTime::currentMSecsSinceEpoch(), 1, QStringLiteral("echo.logging"),
+                   QStringLiteral("Unable to remove %1 expired log files").arg(cleanupFailures)});
         for (;;) {
             std::deque<Record> batch;
             bool stopping;
@@ -189,9 +251,9 @@ protected:
             }
             const auto dropped = m_dropped.exchange(0);
             if (dropped)
-                write(
-                    {QDateTime::currentMSecsSinceEpoch(), 1, QStringLiteral("echo.logging"),
-                     QStringLiteral("dropped %1 entries: bounded Qt log queue full").arg(dropped)});
+                write({QDateTime::currentMSecsSinceEpoch(), 1, QStringLiteral("echo.logging"),
+                       QStringLiteral("Dropped %1 log entries (queue capacity or contention)")
+                           .arg(dropped)});
             for (const auto &record : batch)
                 write(record);
             if (fileAlive)
@@ -202,10 +264,21 @@ protected:
     }
 
 private:
+    bool accepts(uint32_t level) const
+    {
+        // Enforce the diagnostic deadline here even while the GUI timer is busy.
+        const auto base = m_level.load(std::memory_order_relaxed);
+        const auto threshold =
+            QDateTime::currentMSecsSinceEpoch() < m_diagnosticUntil.load(std::memory_order_relaxed)
+                ? qMax(3, base)
+                : base;
+        return int(level) <= threshold;
+    }
     QString m_directory;
     std::atomic_int m_level;
     std::atomic<qint64> m_diagnosticUntil{0};
     bool m_console;
+    int m_retentionDays;
     QMutex m_mutex;
     QWaitCondition m_ready;
     std::deque<Record> m_queue;
@@ -228,7 +301,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
     if (writer)
         writer->enqueue(logLevel(type),
                         QString::fromLatin1(context.category ? context.category : "qt"), message,
-                        rustEmissionTime);
+                        rustEmissionTime, type == QtFatalMsg);
 }
 void rustRecord(void *, const EchoLogEntry *entry)
 {
@@ -266,6 +339,7 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
                       : directory)
 {
     m_level = qBound(0, level, 4);
+    int retentionDays = 7;
     if (preferences) {
         m_preferences = accessor(*preferences);
         const auto savedLevel =
@@ -273,6 +347,11 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
         if (!commandLineLevel && savedLevel >= 0)
             m_level = savedLevel;
         m_responseBody = m_preferences->value("logging/apiResponseBody", false).toBool();
+        bool validRetention = false;
+        const auto savedRetention =
+            m_preferences->value("logging/retentionDays", 7).toInt(&validRetention);
+        if (validRetention && savedRetention >= 1 && savedRetention <= 365)
+            retentionDays = savedRetention;
         const auto now = QDateTime::currentMSecsSinceEpoch();
         const auto savedUntil = m_preferences->value("logging/diagnosticUntil", 0).toLongLong();
         if (savedUntil > now)
@@ -283,7 +362,7 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
         qWarning("Unable to start EchoMusicNext logging");
         return;
     }
-    m_sink = std::make_shared<LogSink>(m_directory, m_level, console);
+    m_sink = std::make_shared<LogSink>(m_directory, m_level, console, retentionDays);
     m_sink->setLevel(m_level, m_diagnosticUntil);
     {
         QMutexLocker lock(&sinkMutex);
@@ -309,8 +388,12 @@ LogService::LogService(const QString &directory, int level, bool console, QSetti
     });
     if (diagnosticActive())
         m_diagnostics.start();
-    qInfo().noquote() << "EchoMusicNext Qt logging started; directory=" << m_directory;
-    qInfo().noquote() << "Session build:" << CrashDiagnostics::buildDescription();
+    qCInfo(loggingLog).noquote().nospace()
+        << "Logging started pid=" << QCoreApplication::applicationPid()
+        << " level=" << this->level() << " timezone=" << QTimeZone::systemTimeZoneId()
+        << " retention_days=" << retentionDays
+        << " file=" << QDir(m_directory).absoluteFilePath(sessionLogFileName());
+    qCInfo(loggingLog).noquote() << "Session build:" << CrashDiagnostics::buildDescription();
 }
 QString LogService::level() const
 {
@@ -406,7 +489,7 @@ LogService::~LogService()
     while (echo_log_drain(rustRecord, nullptr) > 0) {
     }
     echo_log_stop();
-    qInfo("EchoMusicNext Qt logging stopped; draining accepted entries");
+    qCInfo(loggingLog, "Logging stopped; draining accepted entries");
     qInstallMessageHandler(m_previous);
     {
         QMutexLocker lock(&sinkMutex);

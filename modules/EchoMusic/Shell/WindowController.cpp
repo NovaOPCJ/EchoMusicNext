@@ -1,5 +1,6 @@
 #include "WindowController.h"
 #include "WindowPresentationDiagnostics.h"
+#include "WindowResizeSync.h"
 #include "PlaybackService.h"
 #include "TrayIconTheme.h"
 #include <QMenuBar>
@@ -117,6 +118,10 @@ void WindowController::attach(QQuickWindow *window)
     if (qEnvironmentVariableIntValue("ECHO_RENDER_DIAGNOSTICS") == 1)
         new WindowPresentationDiagnostics(window);
     window->installEventFilter(this);
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows"))
+        new WindowResizeSync(window);
+#endif
     // Test/offscreen controllers never allocate a QWidget menu or touch the OS.
     if (m_persist && qobject_cast<QApplication *>(QCoreApplication::instance()) &&
         QGuiApplication::platformName() != "offscreen") {

@@ -56,7 +56,7 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QAbstractListModel(parent)
          "NetworkSettingsSection"},
         {"experimental", tr("实验性功能"), "flask",
          tr("页面缓存 最大缓存页面数 日志级别 API 响应体日志 临时诊断日志 诊断并重启 开启启动诊断 "
-            "GPU DPI"),
+            "用户信息 鉴权头 用户 ID token t1 guid mid dfid uuid dev mac 重置设备身份 GPU DPI"),
          "ExperimentalSettingsSection"},
         {"about", tr("关于"), "info-circle",
          tr("自动检查更新 检查预发布版本 静默安装 当前版本 更新日志 免责声明 项目源码"),

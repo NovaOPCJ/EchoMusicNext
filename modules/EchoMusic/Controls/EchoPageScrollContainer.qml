@@ -1,10 +1,11 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import EchoMusic.Controls
+import EchoMusic.Theme
 
 // A page viewport, not another scrolling view. ListView/GridView keep their
 // own viewport, delegate pool and attached scrollbar connection.
-Item {
+EchoWheelForwarder {
     id: page
     default property alias contentData: contentSurface.data
     property Flickable scrollView: null
@@ -43,10 +44,18 @@ Item {
     }
     signal scrolled
     clip: true
+    wheelView: scrollView
+    forwardOutsideViewOnly: true
+    forwardingEnabled: pageActive
     Binding {
         target: page.scrollView ? page.scrollView.EchoWheelScroll : null
         property: "enabled"
         value: page.pageActive
+    }
+    Binding {
+        target: page.scrollView ? page.scrollView.EchoWheelScroll : null
+        property: "motionEnabled"
+        value: Theme.store.motionEnabled
     }
 
     function firstY(view: Flickable): real {
@@ -131,20 +140,6 @@ Item {
     function scrollBy(distance: real) {
         if (scrollView)
             scrollTo(viewOffset(scrollView) + distance);
-    }
-    function forwardWheel(event) {
-        if (!pageActive || !scrollView || !scrollView.interactive || (event.modifiers & Qt.ControlModifier) || Math.abs(event.angleDelta.x) > Math.abs(event.angleDelta.y) || Math.abs(event.pixelDelta.x) > Math.abs(event.pixelDelta.y)) {
-            event.accepted = false;
-            return;
-        }
-        const delta = event.pixelDelta.y || event.angleDelta.y / 120 * EchoPageScrollMetrics.wheelStep;
-        if (event.pixelDelta.y) {
-            if (delta !== 0)
-                scrollBy(-delta);
-            event.accepted = delta !== 0;
-        } else {
-            event.accepted = scrollView.EchoWheelScroll.scrollBy(-delta);
-        }
     }
     function resetPosition() {
         state.adjusting = true;
@@ -232,42 +227,12 @@ Item {
             anchors.fill: parent
             z: 150
             clip: true
-            Item {
+            EchoWheelForwarder {
                 objectName: "pageHeaderWheelRegion"
                 width: page.width
                 height: page.occlusionHeight
-                WheelHandler {
-                    target: null
-                    // Qt's blocking flag accepts the event point independently
-                    // of onWheel's event.accepted. Scope the handler to the
-                    // header and allow rejected Ctrl/horizontal events through.
-                    blocking: false
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    enabled: page.pageActive && parent.height > 0
-                    onWheel: event => page.forwardWheel(event)
-                }
-            }
-        },
-        WheelHandler {
-            parent: page
-            target: null
-            blocking: false
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            enabled: page.pageActive
-            // Only cover gutters outside the active view. Flickable can ignore
-            // a touchpad's initial update while establishing a drag; forwarding
-            // that event via scrollTo would cancel its native gesture state.
-            onWheel: event => {
-                if (!page.scrollView || event.y < page.occlusionHeight) {
-                    event.accepted = false;
-                    return;
-                }
-                const point = page.scrollView.mapFromItem(page, event.x, event.y);
-                if (point.x >= 0 && point.x < page.scrollView.width && point.y >= 0 && point.y < page.scrollView.height) {
-                    event.accepted = false;
-                    return;
-                }
-                page.forwardWheel(event);
+                wheelView: page.scrollView
+                forwardingEnabled: page.pageActive
             }
         },
         Item {

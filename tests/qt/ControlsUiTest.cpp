@@ -1,6 +1,8 @@
 #include "EchoIconSource.h"
 #include "EchoWheelScroll.h"
 #include <QStyleHints>
+#include <QAccessibilityHints>
+#include <QWheelEvent>
 #include <QScopeGuard>
 #include "EchoBackdropRoot.h"
 #include "EchoSelectModel.h"
@@ -15,6 +17,7 @@
 #include <QPainterPath>
 #include <QPointer>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlProperty>
 #include <QQuickItem>
@@ -22,6 +25,9 @@
 #include <QQuickWindow>
 #include <QScreen>
 #include <QSGRendererInterface>
+#include <QSGTexture>
+#include <QSGTextureProvider>
+#include <QRunnable>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTextLayout>
@@ -29,6 +35,7 @@
 #include <QTimer>
 #include <functional>
 #include <ctime>
+#include <atomic>
 
 using namespace EchoMusic;
 namespace
@@ -41,6 +48,63 @@ QQuickItem *findVisual(QQuickItem *root, const QString &name)
         if (auto *found = findVisual(child, name))
             return found;
     return nullptr;
+}
+struct WheelRecord
+{
+    QPoint pixel, angle;
+    Qt::ScrollPhase phase;
+    bool inverted;
+    quint64 timestamp;
+    Qt::MouseEventSource source;
+    const QPointingDevice *device;
+};
+class WheelRecorder : public QObject
+{
+public:
+    QList<WheelRecord> records;
+    bool eventFilter(QObject *, QEvent *event) override
+    {
+        if (event->type() == QEvent::Wheel) {
+            const auto *wheel = static_cast<QWheelEvent *>(event);
+            records.append({wheel->pixelDelta(), wheel->angleDelta(), wheel->phase(),
+                            wheel->inverted(), wheel->timestamp(), wheel->source(),
+                            wheel->pointingDevice()});
+        }
+        return false;
+    }
+};
+bool notifyMotionPreference(Qt::MotionPreference preference)
+{
+    // Inject the public Qt notification only in this test process; no OS
+    // accessibility setting is written.
+    auto *hints = const_cast<QAccessibilityHints *>(QGuiApplication::styleHints()->accessibility());
+    return QMetaObject::invokeMethod(hints, "motionPreferenceChanged", Qt::DirectConnection,
+                                     Q_ARG(Qt::MotionPreference, preference));
+}
+bool supportsFloatingEffects(QQuickWindow *window)
+{
+    const auto api = window->rendererInterface()->graphicsApi();
+    return QSGRendererInterface::isApiRhiBased(api) && api != QSGRendererInterface::Null;
+}
+QSize renderedTextureSize(QQuickWindow *window, QQuickItem *item)
+{
+    struct Result
+    {
+        QSize size;
+        std::atomic_bool ready = false;
+    };
+    const auto result = std::make_shared<Result>();
+    window->scheduleRenderJob(QRunnable::create([item, result] {
+                                  if (auto *provider = item->textureProvider())
+                                      if (auto *texture = provider->texture())
+                                          result->size = texture->textureSize();
+                                  result->ready.store(true, std::memory_order_release);
+                              }),
+                              QQuickWindow::AfterRenderingStage);
+    window->update();
+    if (!QTest::qWaitFor([&] { return result->ready.load(std::memory_order_acquire); }))
+        return {};
+    return result->size;
 }
 struct ControlsSession
 {
@@ -105,6 +169,10 @@ Window {
         auto *wheel = qobject_cast<EchoWheelScrollAttached *>(
             qmlAttachedPropertiesObject<EchoWheelScroll>(view, false));
         QVERIFY(wheel);
+        const auto originalPreference =
+            QGuiApplication::styleHints()->accessibility()->motionPreference();
+        const auto restoreMotion = qScopeGuard([&] { notifyMotionPreference(originalPreference); });
+        QVERIFY(notifyMotionPreference(Qt::MotionPreference::NoPreference));
         QTest::qWait(150); // Finish initial window/attached-scrollbar polish.
         auto send = [&](QPoint pixel, int angle, Qt::ScrollPhase phase = Qt::NoScrollPhase,
                         Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
@@ -181,6 +249,187 @@ Window {
         session.window->hide();
         QVERIFY(!wheel->running());
     }
+    void wheelCancellationAndMotionPreferences()
+    {
+        ControlsSession session;
+        session.theme.attachToEngine(session.engine);
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+Window { visible: true; width: 600; height: 450
+ Flickable { objectName: "wheelView"; anchors.fill: parent; contentWidth: width; contentHeight: 30000
+  boundsBehavior: Flickable.StopAtBounds
+  ScrollBar.vertical: EchoScrollBar {}
+ }
+})",
+                          QUrl());
+        session.root.reset(component.create());
+        QVERIFY2(session.root, qPrintable(component.errorString()));
+        session.window = qobject_cast<QQuickWindow *>(session.root.data());
+        QVERIFY(session.window && Test::prepareNativeInput(session.window));
+        auto *view = session.item("wheelView");
+        QVERIFY(view);
+        auto *wheel = qobject_cast<EchoWheelScrollAttached *>(
+            qmlAttachedPropertiesObject<EchoWheelScroll>(view, false));
+        QVERIFY(wheel);
+        const auto originalPreference =
+            QGuiApplication::styleHints()->accessibility()->motionPreference();
+        const auto restore = qScopeGuard([&] { notifyMotionPreference(originalPreference); });
+        QVERIFY(notifyMotionPreference(Qt::MotionPreference::NoPreference));
+        QTest::qWait(100);
+        ulong timestamp = 1000;
+        const auto send = [&] {
+            const QPointF point(200, 200);
+            QWheelEvent event(point, session.window->mapToGlobal(point.toPoint()), {}, {0, -120},
+                              Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            event.setTimestamp(timestamp += 20);
+            QCoreApplication::sendEvent(session.window, &event);
+        };
+        const auto step = QGuiApplication::styleHints()->wheelScrollLines() * 24;
+        view->setProperty("contentY", 1000.);
+        send();
+        QVERIFY(wheel->running());
+        QTest::qWait(25);
+        view->setProperty("interactive", false);
+        const auto stopped = view->property("contentY").toReal();
+        QVERIFY(!wheel->running());
+        QTest::qWait(180);
+        QCOMPARE(view->property("contentY").toReal(), stopped);
+        view->setProperty("interactive", true);
+        QVERIFY(!wheel->running());
+        view->setProperty("contentY", 1000.);
+        send();
+        QVERIFY(wheel->running());
+        QTest::qWait(25);
+        session.theme.setMotionEnabled(false);
+        QVERIFY(!wheel->motionEnabled());
+        QVERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + step);
+        send();
+        QVERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + 2 * step);
+        session.theme.setMotionEnabled(true);
+        send();
+        QVERIFY(wheel->running());
+        QVERIFY(notifyMotionPreference(Qt::MotionPreference::ReducedMotion));
+        QVERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + 3 * step);
+        send();
+        QVERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + 4 * step);
+        QVERIFY(notifyMotionPreference(Qt::MotionPreference::NoPreference));
+        send();
+        QVERIFY(wheel->running());
+        QTRY_VERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + 5 * step);
+    }
+    void pageWheelRegionsPreserveNativeEvents()
+    {
+        ControlsSession session;
+        session.theme.attachToEngine(session.engine);
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import EchoMusic.Controls
+Window { id: host; visible: true; width: 600; height: 450
+ property int childWheels: 0
+ EchoPageScrollContainer {
+  id: page; anchors.fill: parent; scrollView: flick; stickyHeaders: [header]
+  Flickable {
+   id: flick; objectName: "wheelView"; x: 40; width: parent.width - 80; height: parent.height
+   contentWidth: width; contentHeight: 30000; topMargin: 60; boundsBehavior: Flickable.StopAtBounds
+   ScrollBar.vertical: EchoPageScrollBar { view: flick; container: page }
+  }
+  EchoPageStickyHeader { id: header; container: page; height: 60
+   MouseArea { width: 80; height: parent.height; onWheel: event => { host.childWheels++; event.accepted = true; } }
+  }
+ }
+})",
+                          QUrl());
+        session.root.reset(component.create());
+        QVERIFY2(session.root, qPrintable(component.errorString()));
+        session.window = qobject_cast<QQuickWindow *>(session.root.data());
+        QVERIFY(session.window && Test::prepareNativeInput(session.window));
+        auto *view = session.item("wheelView");
+        QVERIFY(view);
+        auto *wheel = qobject_cast<EchoWheelScrollAttached *>(
+            qmlAttachedPropertiesObject<EchoWheelScroll>(view, false));
+        QVERIFY(wheel);
+        WheelRecorder recorder;
+        view->installEventFilter(&recorder);
+        ulong timestamp = 5000;
+        const auto send = [&](QPointF position, QPoint pixel, QPoint angle, Qt::ScrollPhase phase,
+                              Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QWheelEvent event(position, session.window->mapToGlobal(position.toPoint()), pixel,
+                              angle, Qt::NoButton, modifiers, phase, true,
+                              Qt::MouseEventSynthesizedBySystem);
+            event.setTimestamp(timestamp += 20);
+            QCoreApplication::sendEvent(session.window, &event);
+        };
+        QTest::qWait(100);
+        const auto step = QGuiApplication::styleHints()->wheelScrollLines() * 24;
+        for (const auto &position :
+             {QPointF(200, 180), QPointF(200, 20), QPointF(15, 180), QPointF(585, 180)}) {
+            QMetaObject::invokeMethod(view, "cancelFlick");
+            view->setProperty("contentY", 1000.);
+            recorder.records.clear();
+            send(position, {}, {0, -120}, Qt::NoScrollPhase);
+            QCOMPARE(recorder.records.size(), 1);
+            QTRY_VERIFY(!wheel->running());
+            QCOMPARE(view->property("contentY").toReal(), 1000. + step);
+            view->setProperty("contentY", 1000.);
+            recorder.records.clear();
+            QSignalSpy movement(view, SIGNAL(movementStarted()));
+            send(position, {}, {}, Qt::ScrollBegin);
+            for (int i = 0; i < 3; ++i)
+                send(position, {0, -40}, {0, -80}, Qt::ScrollUpdate);
+            send(position, {0, -20}, {0, -40}, Qt::ScrollMomentum);
+            send(position, {}, {}, Qt::ScrollEnd);
+            QCOMPARE(recorder.records.size(), 6);
+            QCOMPARE(recorder.records.first().phase, Qt::ScrollBegin);
+            QCOMPARE(recorder.records.at(1).pixel, QPoint(0, -40));
+            QCOMPARE(recorder.records.at(1).angle, QPoint(0, -80));
+            QCOMPARE(recorder.records.at(1).phase, Qt::ScrollUpdate);
+            QCOMPARE(recorder.records.at(1).timestamp, quint64(timestamp - 80));
+            QCOMPARE(recorder.records.at(1).inverted, true);
+            QCOMPARE(recorder.records.at(1).source, Qt::MouseEventSynthesizedBySystem);
+            QCOMPARE(recorder.records.at(1).device, QPointingDevice::primaryPointingDevice());
+            QCOMPARE(recorder.records.at(4).phase, Qt::ScrollMomentum);
+            QCOMPARE(recorder.records.last().phase, Qt::ScrollEnd);
+            QVERIFY(!wheel->running());
+            QVERIFY(!movement.isEmpty());
+            QVERIFY(view->property("contentY").toReal() > 1000.);
+            QMetaObject::invokeMethod(view, "cancelFlick");
+            view->setProperty("contentY", 1000.);
+            recorder.records.clear();
+            // Angle-only events with a phase must also follow native Flickable.
+            send(position, {}, {}, Qt::ScrollBegin);
+            send(position, {}, {0, -120}, Qt::ScrollUpdate);
+            QCOMPARE(recorder.records.size(), 2);
+            QCOMPARE(recorder.records.last().phase, Qt::ScrollUpdate);
+            QVERIFY(!wheel->running());
+            send(position, {}, {}, Qt::ScrollEnd);
+            QMetaObject::invokeMethod(view, "cancelFlick");
+        }
+        recorder.records.clear();
+        view->setProperty("contentY", 1000.);
+        send({30, 20}, {}, {0, -120}, Qt::NoScrollPhase);
+        QCOMPARE(session.root->property("childWheels").toInt(), 1);
+        QVERIFY(recorder.records.isEmpty());
+        QCOMPARE(view->property("contentY").toReal(), 1000.);
+        send({200, 20}, {}, {0, -120}, Qt::NoScrollPhase, Qt::ControlModifier);
+        send({200, 20}, {-40, 0}, {-120, 0}, Qt::ScrollUpdate);
+        QVERIFY(recorder.records.isEmpty());
+        // Page and scrollbar bindings must agree when the app disables motion.
+        session.theme.setMotionEnabled(false);
+        QVERIFY(!wheel->motionEnabled());
+        send({200, 20}, {}, {0, -120}, Qt::NoScrollPhase);
+        QVERIFY(!wheel->running());
+        QCOMPARE(view->property("contentY").toReal(), 1000. + step);
+    }
     void scaledPopupTextKeepsNativePixelResolution()
     {
         ControlsSession session;
@@ -203,6 +452,14 @@ ApplicationWindow {
   sourceComponent: EchoDrawer { uiScale: host.zoom; playerBottomInset: 12
    contentItem: Item {
     Text { x: 24; y: 48; text: "播放队列 弹出层文字 清晰度\nEchoMusicNext 0123456789"; font: Theme.font(13,600); color: "#111111" }
+    Item {
+     id: pattern; objectName: "resolutionPattern"; x: 24; y: 120
+     property real pixel: 1 / (host.zoom * Screen.devicePixelRatio)
+     width: 128 * pixel; height: 16 * pixel
+     Row { Repeater { model: 128
+      Rectangle { required property int index; width: pattern.pixel; height: pattern.height; color: index % 2 ? "black" : "white" }
+     } }
+    }
    }
   }
  }
@@ -223,33 +480,100 @@ ApplicationWindow {
             auto *content = panel->property("contentItem").value<QQuickItem *>();
             QVERIFY(content);
             QTest::qWait(100);
-            const auto texture = QQmlProperty(content, "layer.textureSize").read().toSize();
+            QQuickItem *capture = nullptr;
+            QTRY_VERIFY(
+                (capture = findVisual(session.window->contentItem(), "popupContentCapture")));
+            const auto texture = capture->property("textureSize").toSize();
             const auto dpr = session.window->devicePixelRatio();
-            QCOMPARE(texture, QSize(qCeil(content->width() * scale * dpr),
-                                    qCeil(content->height() * scale * dpr)));
+            const auto span = content->mapRectToScene(content->boundingRect());
+            QCOMPARE(
+                texture,
+                QSize(qCeil(span.right() * dpr - 0.000001) - qFloor(span.left() * dpr + 0.000001),
+                      qCeil(span.bottom() * dpr - 0.000001) - qFloor(span.top() * dpr + 0.000001)));
+            const auto actualTexture = renderedTextureSize(session.window, capture);
+            QCOMPARE(actualTexture, texture);
+            qInfo() << "popup dpr" << dpr << "actual content texture" << actualTexture;
+            auto *effect = findVisual(session.window->contentItem(), "popupContentMaskEffect");
+            QVERIFY(effect);
+            qInfo() << "effect size" << effect->size() << "hasProxySource"
+                    << effect->property("hasProxySource");
+            auto *clip = panel->findChild<QObject *>("popupContentClip");
+            qInfo() << "capture metrics" << span << clip->property("dpr")
+                    << capture->property("sourceRect")
+                    << effect->mapRectToScene(effect->boundingRect()) << session.window->size()
+                    << session.window->grabWindow().size();
             const auto point = content->mapToScene(QPointF(22, 46)) * dpr;
             const QRect crop(qRound(point.x()), qRound(point.y()), qRound(340 * scale * dpr),
                              qRound(45 * scale * dpr));
-            const auto masked =
-                session.window->grabWindow().copy(crop).convertToFormat(QImage::Format_RGB32);
-            QVERIFY(QQmlProperty(content, "layer.enabled").write(false));
+            auto *pattern = findVisual(content, "resolutionPattern");
+            QVERIFY(pattern);
+            const auto patternPoint =
+                pattern->mapToScene({2 * pattern->property("pixel").toReal(),
+                                     2 * pattern->property("pixel").toReal()}) *
+                dpr;
+            const QRect patternCrop(qRound(patternPoint.x()), qRound(patternPoint.y()), 124, 12);
+            const auto maskedFrame = session.window->grabWindow();
+            const auto masked = maskedFrame.copy(crop).convertToFormat(QImage::Format_RGB32);
+            const auto maskedPattern = maskedFrame.copy(patternCrop);
+            QVERIFY(capture->setProperty("sourceItem", QVariant::fromValue<QQuickItem *>(nullptr)));
+            effect->setVisible(false);
             QTest::qWait(100);
-            const auto direct =
-                session.window->grabWindow().copy(crop).convertToFormat(QImage::Format_RGB32);
-            double difference = 0;
+            const auto directFrame = session.window->grabWindow();
+            const auto direct = directFrame.copy(crop).convertToFormat(QImage::Format_RGB32);
+            const auto directPattern = directFrame.copy(patternCrop);
+            int patternDifference = 0, inversePatternDifference = 0, patternContrast = 255;
+            for (int y = 0; y < maskedPattern.height(); ++y)
+                for (int x = 0; x < maskedPattern.width(); ++x) {
+                    const auto value = qGray(maskedPattern.pixel(x, y));
+                    const auto reference = qGray(directPattern.pixel(x, y));
+                    patternDifference = qMax(patternDifference, qAbs(value - reference));
+                    inversePatternDifference =
+                        qMax(inversePatternDifference, qAbs(value - (255 - reference)));
+                    if (x > 0)
+                        patternContrast = qMin(patternContrast,
+                                               qAbs(value - qGray(maskedPattern.pixel(x - 1, y))));
+                }
+            // Rectangle rasterization can choose the adjacent pixel at an
+            // exact edge tie. Either stripe phase must retain full contrast
+            // with no repeated pixels; interpolation or low-res copies cannot.
+            patternDifference = qMin(patternDifference, inversePatternDifference);
+            // An RGBA offscreen target uses grayscale text AA; the direct
+            // target can use colored LCD AA. Compare neutral text samples,
+            // and independently reject resampling with one-device-pixel stripes.
+            double difference = 0, neutralDifference = 0;
+            int neutralSamples = 0;
             for (int y = 0; y < masked.height(); ++y)
-                for (int x = 0; x < masked.width(); ++x)
-                    difference += qAbs(qGray(masked.pixel(x, y)) - qGray(direct.pixel(x, y)));
+                for (int x = 0; x < masked.width(); ++x) {
+                    const auto pixel = direct.pixel(x, y);
+                    const auto delta = qAbs(qGray(masked.pixel(x, y)) - qGray(pixel));
+                    difference += delta;
+                    if (qMax(qRed(pixel), qMax(qGreen(pixel), qBlue(pixel))) -
+                            qMin(qRed(pixel), qMin(qGreen(pixel), qBlue(pixel))) <=
+                        2) {
+                        neutralDifference += delta;
+                        ++neutralSamples;
+                    }
+                }
             difference /= masked.width() * masked.height();
+            QVERIFY(neutralSamples > 0);
+            neutralDifference /= neutralSamples;
             qInfo() << "popup scale" << scale << "texture" << texture << "mean pixel difference"
-                    << difference;
-            QVERIFY2(difference < 2., qPrintable(QString::number(difference)));
+                    << difference << "neutral text difference" << neutralDifference
+                    << "stripe phase-independent difference" << patternDifference
+                    << "stripe minimum contrast" << patternContrast;
             const auto captures = qEnvironmentVariable("ECHO_TEXT_CLARITY_CAPTURES");
             if (!captures.isEmpty()) {
                 QDir().mkpath(captures);
                 QVERIFY(masked.save(captures + QString("/masked-%1.png").arg(scale)));
                 QVERIFY(direct.save(captures + QString("/direct-%1.png").arg(scale)));
+                QVERIFY(
+                    maskedPattern.save(captures + QString("/stripes-masked-%1.png").arg(scale)));
+                QVERIFY(
+                    directPattern.save(captures + QString("/stripes-direct-%1.png").arg(scale)));
             }
+            QVERIFY2(neutralDifference < 2., qPrintable(QString::number(neutralDifference)));
+            QVERIFY2(patternDifference <= 2, qPrintable(QString::number(patternDifference)));
+            QVERIFY2(patternContrast >= 253, qPrintable(QString::number(patternContrast)));
             QVERIFY(QMetaObject::invokeMethod(panel, "close"));
             QTRY_VERIFY(panel.isNull());
         }
@@ -435,8 +759,9 @@ Window {
                             (mask = popup->findChild<QQuickItem *>("popupContentRoundedMask")));
                         auto *view = content->property("item").value<QQuickItem *>();
                         QVERIFY(view);
-                        QVERIFY(QQmlProperty(content, "layer.enabled").read().toBool());
-                        QVERIFY(QQmlProperty(content, "layer.effect").read().value<QObject *>());
+                        QVERIFY(!QQmlProperty(content, "layer.enabled").read().toBool());
+                        QVERIFY(findVisual(content->parentItem(), "popupContentCapture"));
+                        QVERIFY(findVisual(content->parentItem(), "popupContentMaskEffect"));
                         view->setProperty("contentY", 2000. - view->height());
                         view->setProperty("painted", false);
                         QTest::qWait(70);
@@ -1717,6 +2042,142 @@ Item {
         sampler.setEnabled(false);
         QVERIFY(sampler.sourceRect().isEmpty());
     }
+    void backdropSamplerTracksBothItemTrees()
+    {
+        QQuickWindow window;
+        QQuickItem common(window.contentItem()), sourceParent(&common), otherParent(&common);
+        auto source = std::make_unique<EchoBackdropRoot>(&sourceParent);
+        source->setSize({500, 400});
+        QQuickItem popupParent(&common), surface(&popupParent);
+        surface.setPosition({150, 80});
+        surface.setSize({200, 180});
+        EchoBackdropSampler sampler;
+        sampler.setSurface(&surface);
+        sampler.setPadding(72);
+        sampler.setEnabled(true);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("testSampler", &sampler);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+ShaderEffectSource { sourceRect: testSampler.sourceRect }
+)",
+                          QUrl());
+        QScopedPointer<QObject> capture(component.create());
+        QVERIFY2(capture, qPrintable(component.errorString()));
+        const auto captured = [&] { return capture->property("sourceRect").toRectF(); };
+        QCOMPARE(captured(), QRectF(78, 8, 344, 324));
+        QSignalSpy changed(&sampler, &EchoBackdropSampler::changed);
+        source->setX(40);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(captured(), QRectF(38, 8, 344, 324));
+        const auto expected = [&] {
+            return surface.mapRectToItem(sampler.source(), QRectF(-72, -72, 344, 324));
+        };
+        sourceParent.setX(17);
+        QCOMPARE(captured(), expected());
+        sourceParent.setScale(1.25);
+        QCOMPARE(captured(), expected());
+        source->setScale(1.2);
+        source->setRotation(17);
+        QCOMPARE(captured(), expected());
+        changed.clear();
+        source->setTransformOrigin(QQuickItem::TopLeft);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(captured(), expected());
+        source->setWidth(700);
+        QCOMPARE(captured(), expected());
+        popupParent.setPosition({30, 20});
+        QCOMPARE(captured(), expected());
+        changed.clear();
+        common.setX(10);
+        QCOMPARE(changed.size(), 1); // The shared ancestor is not connected twice.
+        source->setParentItem(&otherParent);
+        QCOMPARE(captured(), expected());
+        changed.clear();
+        sourceParent.setX(50);
+        QVERIFY(changed.isEmpty()); // Retired ancestry no longer invalidates captures.
+        otherParent.setY(30);
+        QVERIFY(!changed.isEmpty());
+        QCOMPARE(captured(), expected());
+        auto replacement = std::make_unique<EchoBackdropRoot>(&sourceParent);
+        QCOMPARE(sampler.source(), replacement.get());
+        QCOMPARE(captured(), expected());
+        changed.clear();
+        source->setX(80);
+        QVERIFY(changed.isEmpty());
+        replacement->setX(20);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(captured(), expected());
+        replacement.reset();
+        QCOMPARE(sampler.source(), source.get());
+        QCOMPARE(captured(), expected());
+        sampler.setEnabled(false);
+        QVERIFY(captured().isEmpty());
+        changed.clear();
+        source->setX(120);
+        otherParent.setY(50);
+        QVERIFY(changed.isEmpty());
+        sampler.setEnabled(true);
+        QCOMPARE(captured(), expected());
+        source.reset();
+        QVERIFY(!sampler.source());
+        QVERIFY(captured().isEmpty());
+    }
+    void floatingSurfaceMatchesRendererCapabilities()
+    {
+        ControlsSession session;
+        QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+        QVERIFY(session.create(QStringLiteral("BackdropHarness.qml")));
+        auto *surface = session.item("frostProbe");
+        QVERIFY(surface);
+        const bool supported = supportsFloatingEffects(session.window);
+        qInfo() << "Surface graphics API:" << session.window->rendererInterface()->graphicsApi()
+                << "shader effects supported:" << supported;
+        if (qEnvironmentVariable("QT_QUICK_BACKEND") == "software")
+            QCOMPARE(session.window->rendererInterface()->graphicsApi(),
+                     QSGRendererInterface::Software);
+        QTRY_COMPARE(surface->property("shaderEffectsSupported").toBool(), supported);
+        session.theme.setFloatingFrosted(true);
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark}) {
+            session.theme.setMode(mode);
+            for (const qreal scale : {1., 1.25}) {
+                surface->setTransformOrigin(QQuickItem::TopLeft);
+                surface->setScale(scale);
+                auto *body = findVisual(surface, "floatingSurfaceBody");
+                QVERIFY(body);
+                QCOMPARE(QQmlProperty(body, "layer.enabled").read().toBool(), supported);
+                if (!supported) {
+                    QVERIFY(surface->findChildren<EchoBackdropSampler *>().isEmpty());
+                    QVERIFY(!findVisual(surface, "floatingBackdropCapture"));
+                    for (auto *object : surface->findChildren<QObject *>())
+                        QVERIFY(!object->inherits("QQuickShaderEffect"));
+                    QTest::qWait(80);
+                    const auto image = session.window->grabWindow();
+                    QVERIFY(!image.isNull());
+                    const auto fill = surface->property("color").value<QColor>();
+                    QCOMPARE(fill.alpha(), 255);
+                    for (const QPointF local : {QPointF(35, 90), QPointF(145, 90)}) {
+                        const auto pixel = surface->mapToScene(local) * image.devicePixelRatio();
+                        QCOMPARE(image.pixelColor(qRound(pixel.x()), qRound(pixel.y())).rgba(),
+                                 fill.rgba());
+                    }
+                    const auto captures = qEnvironmentVariable("ECHO_THEME_SCREENSHOTS");
+                    if (!captures.isEmpty()) {
+                        QDir().mkpath(captures);
+                        QVERIFY(image.save(captures +
+                                           QString("/solid-%1-%2.png").arg(mode).arg(scale)));
+                    }
+                }
+            }
+        }
+        surface->setVisible(false);
+        QTRY_VERIFY(surface->findChildren<EchoBackdropSampler *>().isEmpty());
+        QVERIFY(!surface->property("hasBackdrop").toBool());
+        surface->setVisible(true);
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
+        QCOMPARE(warnings.size(), 0);
+    }
     void floatingFrostSamplesTheSceneAndStopsOnHide()
     {
         ControlsSession session;
@@ -1726,10 +2187,10 @@ Item {
         QVERIFY(surface);
         QVERIFY(!surface->property("hasBackdrop").toBool());
         qInfo() << "Backdrop graphics API:" << session.window->rendererInterface()->graphicsApi();
+        const bool supported = supportsFloatingEffects(session.window);
         session.theme.setFloatingFrosted(true);
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
-        if (QGuiApplication::platformName() != "offscreen" &&
-            session.window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software) {
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
+        if (QGuiApplication::platformName() != "offscreen" && supported) {
             QSignalSpy frames(session.window, &QQuickWindow::frameSwapped);
             session.window->update();
             QTRY_VERIFY(!frames.isEmpty());
@@ -1757,11 +2218,24 @@ Item {
                 QDir().mkpath(captures);
                 QVERIFY(image.save(captures + "/floating-frost-edge.png"));
             }
+            session.root->setProperty("sourceOffset", 40.);
+            QTest::qWait(120);
+            const auto moved = session.window->grabWindow();
+            QVERIFY(!moved.isNull());
+            const auto movedMiddle = moved.pixelColor(qRound(220 * dpr), qRound(160 * dpr));
+            QVERIFY(movedMiddle.red() > middle.red() + 5);
+            QVERIFY(movedMiddle.blue() < middle.blue() - 5);
+            auto *sampler = surface->findChild<EchoBackdropSampler *>();
+            auto *capture = findVisual(surface, "floatingBackdropCapture");
+            QVERIFY(sampler && capture);
+            QCOMPARE(capture->property("sourceRect").toRectF(), sampler->sourceRect());
+            if (!captures.isEmpty())
+                QVERIFY(moved.save(captures + "/floating-frost-moved.png"));
         }
         surface->setVisible(false);
         QTRY_VERIFY(!surface->property("hasBackdrop").toBool());
         surface->setVisible(true);
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         session.theme.setFloatingFrosted(false);
         QTRY_VERIFY(!surface->property("hasBackdrop").toBool());
         QCOMPARE(warnings.count(), 0);
@@ -1774,6 +2248,7 @@ Item {
         session.window->resize(1150, 750);
         auto *surface = session.item("frostProbe");
         QVERIFY(surface);
+        const bool supported = supportsFloatingEffects(session.window);
         surface->setSize({600, 620});
         surface->setVisible(false);
         session.theme.setFloatingFrosted(true);
@@ -1848,11 +2323,11 @@ Item {
         phase("plain");
         const auto plainSamplers = samplerCount();
         surface->setProperty("frostedEnabled", true);
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         phase("frost");
         const auto active = surface->findChildren<EchoBackdropSampler *>();
-        QVERIFY(!active.isEmpty());
-        QPointer<EchoBackdropSampler> ownedSampler = active.first();
+        QCOMPARE(active.isEmpty(), !supported);
+        QPointer<EchoBackdropSampler> ownedSampler = active.isEmpty() ? nullptr : active.first();
         QList<QPointer<EchoBackdropSampler>> retiredSamplers;
         for (int i = 0; i < 20; ++i) {
             for (auto *sampler : surface->findChildren<EchoBackdropSampler *>())
@@ -1860,7 +2335,7 @@ Item {
             surface->setVisible(false);
             QTest::qWait(20);
             surface->setVisible(true);
-            QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+            QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
             QTest::qWait(20);
         }
         surface->setVisible(false);
@@ -1875,15 +2350,15 @@ Item {
         for (const auto &sampler : retiredSamplers)
             QVERIFY(sampler.isNull());
         surface->setVisible(true);
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         session.window->hide();
         QTRY_COMPARE(samplerCount(), 0);
         session.window->show();
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         session.window->showMinimized();
         QTRY_COMPARE(samplerCount(), 0);
         session.window->showNormal();
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         // The window contentItem's visibility is owned by QQuickWindow's
         // asynchronous expose/minimize path. Exercise an ordinary ancestor.
         QQuickItem ancestor(session.window->contentItem());
@@ -1891,7 +2366,7 @@ Item {
         ancestor.setVisible(false);
         QTRY_COMPARE(samplerCount(), 0);
         ancestor.setVisible(true);
-        QTRY_VERIFY(surface->property("hasBackdrop").toBool());
+        QTRY_COMPARE(surface->property("hasBackdrop").toBool(), supported);
         surface->setParentItem(session.window->contentItem());
         surface->setProperty("frostedEnabled", false);
         QTRY_COMPARE(samplerCount(), 0);

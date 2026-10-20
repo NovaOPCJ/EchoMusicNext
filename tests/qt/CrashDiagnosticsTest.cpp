@@ -3,9 +3,11 @@
 #include <QDirIterator>
 #include "CrashDiagnostics.h"
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QRegularExpression>
 #include <QtTest>
 class CrashDiagnosticsTest : public QObject
 {
@@ -76,6 +78,16 @@ private slots:
         QVERIFY(summary["capturedStackBytes"].toInteger() > 0);
         QVERIFY(summary["instructionPointer"].toString() != "0x0");
         QVERIFY(summary["build"].toObject().contains("buildId"));
+        const auto runLog = summary["build"].toObject().value("runLog").toString();
+        QVERIFY(QRegularExpression(
+                    R"(^echomusicnext-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}-\d+\.log$)")
+                    .match(QFileInfo(runLog).fileName())
+                    .hasMatch());
+        for (const auto &line : bytes.split('\n')) {
+            const auto record = QJsonDocument::fromJson(line).object();
+            if (record.value("event") == "session_started")
+                QCOMPARE(record.value("runLog").toString(), runLog);
+        }
 #ifdef Q_OS_WIN
         if (mode == "access" || mode == "worker" || mode == "startup" || mode == "teardown")
             QCOMPARE(summary["exceptionCode"].toString(), QString("0xc0000005"));

@@ -1,5 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
 import EchoMusic.Theme
 import EchoMusic.Controls
 import EchoMusic.Shell
@@ -9,6 +11,7 @@ SettingsSection {
     id: section
     required property ShellSettings settings
     required property WindowController windowService
+    property ExperimentalSettingsService experimental: null
     property LogService logging: null
     property RelaunchService relaunch: null
     heading: qsTr("实验性功能")
@@ -128,6 +131,80 @@ SettingsSection {
                 if (section.logging && section.logging.enableTemporaryDiagnostics())
                     section.relaunch.restart();
             }
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("用户信息")
+        description: qsTr("查看当前账号与设备信息，可复制鉴权头用于调试接口")
+        EchoSoftButton {
+            objectName: "settingsViewUserInfo"
+            text: qsTr("查看")
+            enabled: section.experimental !== null && !section.experimental.busy && !section.experimental.resetPending
+            colors: Theme.floating
+            onClicked: userInfoOwner.open()
+        }
+    }
+    SettingsDivider {}
+    SettingsRow {
+        heading: qsTr("重置设备身份")
+        description: qsTr("清除本机 guid、mid、dfid，并在重启后重新生成设备身份")
+        statusText: section.experimental && section.experimental.resetPending ? qsTr("设备身份已清除，请重启应用后再登录") : ""
+        EchoSoftButton {
+            objectName: "settingsResetDeviceIdentity"
+            text: qsTr("重置")
+            danger: true
+            enabled: section.experimental !== null && !section.experimental.busy && !section.experimental.resetPending
+            colors: Theme.floating
+            onClicked: resetOwner.open()
+        }
+    }
+    EchoPopupLoader {
+        id: userInfoOwner
+        objectName: "settingsUserInfoOwner"
+        hostItem: section
+        sourceComponent: SettingsUserInfoDialog {
+            service: section.experimental
+            uiScale: section.settings.uiScale
+        }
+    }
+    EchoPopupLoader {
+        id: resetOwner
+        objectName: "settingsResetDeviceIdentityOwner"
+        hostItem: section
+        sourceComponent: EchoDialog {
+            id: resetDialog
+            objectName: "settingsResetDeviceIdentityDialog"
+            uiScale: section.settings.uiScale
+            heading: qsTr("重置设备身份")
+            description: qsTr("这会清除本机设备标识并退出当前账号。重启后会生成新的设备身份，酷狗可能会把它视为一台新设备。")
+            footerContent: RowLayout {
+                Item {
+                    Layout.fillWidth: true
+                }
+                EchoSoftButton {
+                    objectName: "settingsCancelDeviceReset"
+                    text: qsTr("取消")
+                    colors: Theme.floating
+                    onClicked: resetDialog.close()
+                }
+                EchoSoftButton {
+                    objectName: "settingsConfirmDeviceReset"
+                    text: qsTr("确认重置")
+                    danger: true
+                    colors: Theme.floating
+                    onClicked: {
+                        resetDialog.close();
+                        section.experimental.resetDeviceIdentity();
+                    }
+                }
+            }
+        }
+    }
+    Connections {
+        target: section.experimental
+        function onIdentityChanged(): void {
+            resetOwner.close();
         }
     }
 }

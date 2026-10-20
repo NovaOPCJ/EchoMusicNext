@@ -10,7 +10,8 @@ namespace EchoMusic
 {
 class SavedAccountModel;
 /// Application owner of visible account state. ApiClient retains the credentials
-/// for immutable request injection; QML never receives token/refresh credentials.
+/// for immutable request injection; ordinary account QML properties never expose credentials.
+/// Explicit laboratory inspection is isolated in ExperimentalSettingsService.
 class AccountService final : public QObject
 {
     Q_OBJECT

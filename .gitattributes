@@ -1,5 +1,7 @@
 # Keep formatter output identical in Windows/macOS/Linux checkouts.
 * text=auto eol=lf
+# Unified diff context lines may contain a single space.
+cmake/patches/*.patch whitespace=-blank-at-eol
 *.png binary
 *.jpg binary
 *.jpeg binary

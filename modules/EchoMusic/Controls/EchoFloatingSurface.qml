@@ -14,7 +14,10 @@ Item {
     property real backdropFillOpacity: 0.82
     property alias border: outline.border
     readonly property bool resourceActive: visible && width > 0 && height > 0 && Window.window !== null && Window.window.visible && Window.window.visibility !== Window.Minimized
-    readonly property bool frosted: frostedEnabled && resourceActive
+    // Software/OpenVG cannot render the QShader-based effect graph. Unknown
+    // also uses the plain fill until GraphicsInfo knows this window's backend.
+    readonly property bool shaderEffectsSupported: GraphicsInfo.shaderType === GraphicsInfo.RhiShader && GraphicsInfo.api !== GraphicsInfo.Null
+    readonly property bool frosted: frostedEnabled && resourceActive && shaderEffectsSupported
     readonly property bool hasBackdrop: frostLoader.body !== null && frostLoader.body.hasBackdrop
     antialiasing: true
     // Capture the local area plus the blur kernel, at quarter resolution.
@@ -27,6 +30,7 @@ Item {
     // Shadows stay outside the body layer so their blur is not cropped into
     // a rectangular frame; their shader already excludes the rounded interior.
     Item {
+        objectName: "floatingSurfaceBody"
         anchors.fill: parent
         layer.enabled: floatingSurface.frosted
         // Popups scale with the application zoom. Nearest sampling of this
@@ -150,7 +154,7 @@ Item {
     Loader {
         anchors.fill: parent
         z: -1
-        active: floatingSurface.resourceActive && floatingSurface.shadowEnabled
+        active: floatingSurface.resourceActive && floatingSurface.shadowEnabled && floatingSurface.shaderEffectsSupported
         sourceComponent: Item {
             EchoSurfaceShadow {
                 anchors.fill: parent

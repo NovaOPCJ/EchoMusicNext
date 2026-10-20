@@ -32,6 +32,7 @@ ApplicationWindow {
     property NetworkPreferences networkPreferences: null
     property ShortcutService shortcutService: null
     property AboutService aboutService: null
+    property ExperimentalSettingsService experimentalSettingsService: null
     property SettingsDataService settingsDataService: null
     property RelaunchService relaunchService: null
     property LogService logService: null
@@ -357,6 +358,7 @@ ApplicationWindow {
                     network: mainWindow.networkPreferences
                     shortcuts: mainWindow.shortcutService
                     about: mainWindow.aboutService
+                    experimental: mainWindow.experimentalSettingsService
                     dataService: mainWindow.settingsDataService
                     logging: mainWindow.logService
                     relaunch: mainWindow.relaunchService

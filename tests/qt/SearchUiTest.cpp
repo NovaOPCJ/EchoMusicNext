@@ -642,21 +642,31 @@ Window {
         QCOMPARE(root->property("rowClicks").toInt(), 0);
         QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(50, 20));
         QCOMPARE(root->property("headerClicks").toInt(), 1);
-        auto sendWheel = [window](QPoint pixel, QPoint angle,
-                                  Qt::KeyboardModifiers modifiers = {}) {
+        ulong timestamp = 1000;
+        auto sendWheel = [window, &timestamp](QPoint pixel, QPoint angle,
+                                              Qt::KeyboardModifiers modifiers = {},
+                                              Qt::ScrollPhase phase = Qt::NoScrollPhase) {
             const QPointF position(200, 20);
             QWheelEvent event(position, window->mapToGlobal(position.toPoint()), pixel, angle,
-                              Qt::NoButton, modifiers, Qt::ScrollUpdate, false);
+                              Qt::NoButton, modifiers, phase, false,
+                              Qt::MouseEventSynthesizedBySystem);
+            event.setTimestamp(timestamp += 20);
             QCoreApplication::sendEvent(window, &event);
         };
-        sendWheel(QPoint(0, -40), {}); // Pixel touchpad deltas must remain pixel deltas.
-        QTRY_COMPARE(page->property("scrollTop").toReal(), qreal(990));
+        QSignalSpy gesture(list, SIGNAL(movementStarted()));
+        sendWheel({}, {}, {}, Qt::ScrollBegin);
+        for (int i = 0; i < 3; ++i)
+            sendWheel(QPoint(0, -40), QPoint(0, -80), {}, Qt::ScrollUpdate);
+        sendWheel({}, {}, {}, Qt::ScrollEnd);
+        QTRY_VERIFY(page->property("scrollTop").toReal() > 950);
+        QVERIFY(!gesture.isEmpty()); // Header gestures retain native Flickable state.
+        const auto gesturePosition = page->property("scrollTop").toReal();
         sendWheel({}, QPoint(0, -120), Qt::ControlModifier);
-        QCOMPARE(page->property("scrollTop").toReal(), qreal(990));
-        sendWheel(QPoint(-80, 0), {});
-        QCOMPARE(page->property("scrollTop").toReal(), qreal(990));
+        QCOMPARE(page->property("scrollTop").toReal(), gesturePosition);
+        sendWheel(QPoint(-80, 0), QPoint(-120, 0));
+        QCOMPARE(page->property("scrollTop").toReal(), gesturePosition);
         sendWheel({}, QPoint(0, -120));
-        QTRY_VERIFY(page->property("scrollTop").toReal() > 990);
+        QTRY_VERIFY(page->property("scrollTop").toReal() > gesturePosition);
         const auto saved = page->property("scrollTop").toReal();
         page->setProperty("pageActive", false);
         QTRY_COMPARE(list->property("count").toInt(), 0);

@@ -5,26 +5,24 @@ layout(std140, binding = 0) uniform buf
 {
     mat4 qt_Matrix;
     float qt_Opacity;
-    float fade;
+    float blend;
+    float hasPrevious;
     vec4 baseColor;
     float backgroundOpacity;
-    float rhythm;
 };
 layout(binding = 1) uniform sampler2D source;
+layout(binding = 2) uniform sampler2D previous;
 void main()
 {
-    // One full-window sample. Composition/motion and the strong blur have
-    // already finished in three small RGBA16F targets, at most 30 times/sec.
     vec4 art = texture(source, qt_TexCoord0);
-    if (rhythm > 0.5) {
-        float luma = dot(art.rgb, vec3(0.2126, 0.7152, 0.0722));
-        art.rgb = clamp(mix(vec3(luma), art.rgb, 1.3) * 1.5, 0.0, art.a) * 0.76;
+    vec4 background = art;
+    if (blend < 1.0) {
+        vec4 old = hasPrevious > 0.5 ? texture(previous, qt_TexCoord0) : baseColor;
+        background = mix(old, art, blend);
     }
-    art *= fade;
-    vec4 background = art + baseColor * (1.0 - art.a);
-    background.rgb *= 0.5;
-    // Stable sub-LSB triangular dither prevents SDR banding when magnifying
-    // the smooth half-float gradients. No animated grain or extra render pass.
+    background += baseColor * (1.0 - background.a);
+    // Stable sub-LSB triangular dither at final SDR quantization. No moving
+    // grain, no extra FBO, and exactly one application of window transparency.
     vec2 pixel = floor(gl_FragCoord.xy);
     float a = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
     float b = fract(52.9829189 * fract(dot(pixel + 17.0, vec2(0.06711056, 0.00583715))));

@@ -51,6 +51,27 @@ if(WIN32)
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
         FetchContent_MakeAvailable(echo_curl)
+        # Check on every configure, including FETCHCONTENT_SOURCE_DIR overrides;
+        # a download patch stamp must not silently leave this macro ineffective.
+        set(curl_patch
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/curl-8.23.0-native-http-digest.patch"
+        )
+        set(curl_patch_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ApplyCurlPatch.cmake")
+        set_property(
+            DIRECTORY
+            APPEND
+            PROPERTY CMAKE_CONFIGURE_DEPENDS "${curl_patch}" "${curl_patch_script}"
+        )
+        execute_process(
+            COMMAND
+                "${CMAKE_COMMAND}" "-DSOURCE_DIR=${echo_curl_SOURCE_DIR}"
+                "-DPATCH_FILE=${curl_patch}" -P "${curl_patch_script}" COMMAND_ERROR_IS_FATAL ANY
+        )
+        # Preserve explicit usernames and the challenge realm for RFC 7616,
+        # including DOMAIN\user and DOMAIN/user. Schannel and NTLM keep SSPI;
+        # SASL DIGEST-MD5 message generation retains SSPI. Cover every translation
+        # unit because it also selects the private digestdata layout.
+        target_compile_definitions(libcurl_static PRIVATE ECHO_CURL_NATIVE_HTTP_DIGEST)
     endfunction()
     echo_setup_curl()
 else()

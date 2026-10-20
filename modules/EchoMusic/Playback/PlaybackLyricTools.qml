@@ -9,6 +9,7 @@ import EchoMusic.Playback
 Flickable {
     id: tools
     EchoWheelScroll.enabled: true
+    EchoWheelScroll.motionEnabled: Theme.store.motionEnabled
     objectName: "playbackLyricTools"
     required property PlaybackService playback
     required property ThemeColors colors

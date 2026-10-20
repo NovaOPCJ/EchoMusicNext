@@ -1,10 +1,11 @@
-// Must precede every other include: crashpad's own headers pull in
-// <windows.h> (which brings in the legacy winsock.h) before winsock2.h,
-// producing sockaddr/fd_set redefinition errors.
+// Winsock2 must precede Crashpad headers that include windows.h.
+#ifdef _WIN32
 #include <winsock2.h>
+#endif
 #include "CrashDiagnostics.h"
 #include "EchoBuildInfo.h"
 #include "LogRedaction.h"
+#include "LogFiles.h"
 #include <QtLogging>
 #include <cstdio>
 #include <QCoreApplication>
@@ -243,8 +244,7 @@ CrashDiagnostics::CrashDiagnostics(const QString &directory) : m_state(std::make
         m_state->error = QStringLiteral("Cannot create crash session lease");
         return;
     }
-    const auto runLog = QDir(directory).absoluteFilePath(
-        QStringLiteral("echomusicnext-%1.log").arg(QCoreApplication::applicationPid()));
+    const auto runLog = QDir(directory).absoluteFilePath(sessionLogFileName());
     QFile file(m_state->report);
     if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
         m_state->error = QStringLiteral("Cannot create emergency crash report");

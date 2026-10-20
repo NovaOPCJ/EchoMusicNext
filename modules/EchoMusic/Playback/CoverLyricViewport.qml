@@ -183,6 +183,7 @@ Item {
     ListView {
         id: lines
         EchoWheelScroll.enabled: viewport.resourceActive
+        EchoWheelScroll.motionEnabled: Theme.store.motionEnabled
         objectName: "playbackLyricList"
         anchors.fill: parent
         clip: true

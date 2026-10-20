@@ -34,7 +34,7 @@ python3.12 scripts/start.py --no-build
 python3.12 scripts/start.py --no-build --log-level debug
 ```
 
-默认构建 Release；切换 SDK 时脚本会刷新 CMake 中的 Qt 路径。日志默认写入 `build/logs/echomusicnext-<PID>.log`，可通过 `--log-dir` 指定目录。直接打开应用时使用标准应用数据目录下的 `logs`。
+默认构建 Release；切换 SDK 时脚本会刷新 CMake 中的 Qt 路径。日志默认写入 `build/logs/echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`，可通过 `--log-dir` 指定目录。直接打开应用时使用标准应用数据目录下的 `logs`。
 
 仅在需要 Debug 调试或断言时显式执行 `python3.12 scripts/build.py --preset debug`。平时只保留 Release；Debug 任务结束后保留必要日志与测试结果，确认没有进程使用，再清理 `build/debug/`。`--log-level debug` 只调整日志级别，不要求 Debug 构建。
 
@@ -70,7 +70,7 @@ ctest --preset release
 
 ## 平台依赖
 
-HTTP 代理认证使用 libcurl：macOS 链接系统库，Linux 需要 `libcurl4-openssl-dev`（最低 7.81，需 NTLM 支持），Windows 由 `cmake/Curl.cmake` 下载固定哈希的 curl 8.23.0 并构建静态库，使用 Schannel / SSPI。
+HTTP 代理认证使用 libcurl：macOS 链接系统库，Linux 需要 `libcurl4-openssl-dev`（最低 7.81，需 NTLM 支持），Windows 由 `cmake/Curl.cmake` 下载固定哈希的 curl 8.23.0 并构建静态库，使用 Schannel / SSPI。Windows 构建需要 Git 来应用 `cmake/patches/curl-8.23.0-native-http-digest.patch`：HTTP Digest 使用 curl 原生实现，保留完整显式用户名（包括 `DOMAIN\user` 和 `DOMAIN/user`）及代理挑战的 realm，支持 MD5 / SHA-256；Schannel TLS 和 NTLM 仍使用 SSPI。该补丁不启用系统身份自动认证。
 
 Linux 还需要 `libproxy-dev` 和 `libglib2.0-dev`。系统代理与 PAC 功能依赖桌面环境提供的 libproxy 配置和 JavaScript 插件，CI 的安装列表包含所需软件包。源码 Qt Multimedia SDK 需要 FFmpeg 及相应音频开发库。
 
@@ -90,6 +90,10 @@ cmake --build --preset lint
 ```
 
 格式规则见[代码格式与检查](formatting.md)。ABI 修改后使用 `cargo run --locked -p ffi-header -- --write` 生成头文件，再检查差异并重新构建。普通构建只校验生成头，不修改源码。
+
+运行日志在终端和文件中统一为 UTF-8 单行文本，时间使用本地 `yyyy-MM-dd HH:mm:ss.SSS`。文件名为 `echomusicnext-yyyy-MM-dd_HH-mm-ss-SSS-PID.log`；启动默认清理超过7天未写的运行日志和轮转文件，活跃会话与独立崩溃现场保留。标准 info 不逐条记录正常 API 成功/取消，可用 `--log-level debug` 查看请求诊断。
+
+设置的“实验性功能”提供“用户信息”与“重置设备身份”。用户信息可查看当前账号和设备字段（含完整 token、t1），并主动复制与原版一致的鉴权头以调试接口；这些凭证不会进入日志或备份。重置需要确认，会退出当前账号并清除本机设备标识，重启后重新生成、注册设备；其他已保存账号与应用设置保留。发行构建沿正常退出流程自动重启，开发启动提示手动重启。
 
 默认自动检查离线运行；显式在线测试依赖网络和服务状态。自动检查通过不替代原生窗口、音频设备、最低系统及安装包验证。
 

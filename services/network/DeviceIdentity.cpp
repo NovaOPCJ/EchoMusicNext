@@ -15,7 +15,23 @@ QString createDeviceGuid()
     const auto source = QUuid::createUuid().toString(QUuid::WithoutBraces).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Md5).toHex());
 }
+void removeDevicePreferences(QSettings &settings)
+{
+    for (const auto *key :
+         {"network/registeredDevice", "network/deviceGuid", "network/deviceFingerprint",
+          "network/deviceMac", "network/deviceUuid", "network/renderFingerprint"})
+        settings.remove(QLatin1String(key));
+}
 } // namespace
+bool DeviceIdentity::resetOnRestart(QSettings &settings)
+{
+    // A registration writer may already hold an old immutable snapshot. The marker
+    // survives that write; load() clears it again only after the old process drained.
+    settings.setValue(QStringLiteral("network/resetDeviceIdentity"), true);
+    removeDevicePreferences(settings);
+    settings.sync();
+    return settings.status() == QSettings::NoError;
+}
 QString DeviceIdentity::midForGuid(const QString &guid)
 {
     const auto digest = QCryptographicHash::hash(guid.toUtf8(), QCryptographicHash::Md5);
@@ -67,6 +83,11 @@ bool DeviceIdentity::saveRegistration(QSettings &settings, const DeviceIdentity 
 }
 DeviceIdentity DeviceIdentity::load(QSettings &settings)
 {
+    if (settings.value(QStringLiteral("network/resetDeviceIdentity")).toBool()) {
+        removeDevicePreferences(settings);
+        settings.remove(QStringLiteral("network/resetDeviceIdentity"));
+        settings.sync();
+    }
     const auto registered = settings.value(QStringLiteral("network/registeredDevice")).toMap();
     const auto guidValue = registered.value("guid").toString();
     const auto dfidValue = registered.value("dfid").toString();

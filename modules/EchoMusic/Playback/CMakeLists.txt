@@ -4,6 +4,8 @@ qt_add_qml_module(
     URI
     EchoMusic.Playback
     SOURCES
+    BackgroundMesh.h
+    BackgroundMesh.cpp
     PlaybackTypes.h
     LyricLine.h
     LyricLine.cpp
@@ -24,6 +26,7 @@ qt_add_qml_module(
     PlaybackPageMotion.qml
     PlaybackBackground.qml
     PlaybackBlurredBackground.qml
+    BackgroundArtwork.qml
     PlaybackAlbumCover.qml
     CoverLyricViewport.qml
     FloatingLyricViewport.qml
@@ -77,8 +80,9 @@ qt_add_shaders(
     PREFIX
     /qt/qml/EchoMusic/Playback
     FILES
-    shaders/lyric-fluid-compose.frag
-    shaders/lyric-background-blur.frag
+    shaders/background-preprocess.frag
+    shaders/background-mesh.vert
+    shaders/background-mesh.frag
     shaders/lyric-fluid.frag
     shaders/lyric-mask.vert
     shaders/lyric-mask.frag

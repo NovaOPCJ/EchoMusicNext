@@ -1,5 +1,6 @@
 #include "EchoWheelScroll.h"
 #include <QGuiApplication>
+#include <QAccessibilityHints>
 #include <QStyleHints>
 #include <QWheelEvent>
 #include <QQuickWindow>
@@ -17,30 +18,42 @@ EchoWheelScrollAttached::EchoWheelScrollAttached(QObject *parent) : QObject(pare
     item->installEventFilter(this);
     connect(item, &QQuickItem::windowChanged, this, &EchoWheelScrollAttached::observeWindow);
     observeWindow(item->window());
-    connect(item, SIGNAL(contentYChanged()), this, SLOT(cancel()));
+    connect(item, SIGNAL(contentYChanged()), this, SLOT(contentPositionChanged()));
+    connect(item, SIGNAL(interactiveChanged()), this, SLOT(cancel()));
     connect(item, &QQuickItem::visibleChanged, this, &EchoWheelScrollAttached::cancel);
     connect(item, &QQuickItem::enabledChanged, this, &EchoWheelScrollAttached::cancel);
     connect(item, &QQuickItem::heightChanged, this, &EchoWheelScrollAttached::cancel);
     m_animation.setDuration(120);
     m_animation.setEasingCurve(QEasingCurve::OutCubic);
+    auto *accessibility = QGuiApplication::styleHints()->accessibility();
+    m_reducedMotion = accessibility->motionPreference() == Qt::MotionPreference::ReducedMotion;
+    connect(accessibility, &QAccessibilityHints::motionPreferenceChanged, this,
+            &EchoWheelScrollAttached::updateMotionPreference);
     connect(&m_animation, &QVariantAnimation::stateChanged, this,
             [this] { emit runningChanged(); });
     connect(&m_animation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
-        if (!m_view)
+        if (!acceptsScroll()) {
+            cancel();
             return;
-        // Virtual views can revise estimated extents while delegates enter.
-        // Clamp against current bounds without throwing away queued wheel ticks.
-        const qreal origin = m_view->property("originY").toReal();
-        const qreal first = origin - m_view->property("topMargin").toReal();
-        const qreal last =
-            qMax(first, origin + m_view->property("contentHeight").toReal() - m_view->height() +
-                            m_view->property("bottomMargin").toReal());
-        const QPointer<EchoWheelScrollAttached> guard(this);
-        m_writing = true;
-        m_view->setProperty("contentY", qBound(first, value.toReal(), last));
-        if (guard)
-            m_writing = false;
+        }
+        writePosition(value.toReal());
     });
+}
+void EchoWheelScrollAttached::writePosition(qreal position)
+{
+    if (!m_view)
+        return;
+    // Virtual views can revise estimated extents while delegates enter.
+    const qreal origin = m_view->property("originY").toReal();
+    const qreal first = origin - m_view->property("topMargin").toReal();
+    const qreal last =
+        qMax(first, origin + m_view->property("contentHeight").toReal() - m_view->height() +
+                        m_view->property("bottomMargin").toReal());
+    const QPointer<EchoWheelScrollAttached> guard(this);
+    m_writing = true;
+    m_view->setProperty("contentY", qBound(first, position, last));
+    if (guard)
+        m_writing = false;
 }
 void EchoWheelScrollAttached::observeWindow(QQuickWindow *window)
 {
@@ -53,20 +66,45 @@ void EchoWheelScrollAttached::observeWindow(QQuickWindow *window)
 }
 void EchoWheelScrollAttached::cancel()
 {
+    m_animation.stop();
+}
+void EchoWheelScrollAttached::contentPositionChanged()
+{
     if (m_writing)
         return;
     // Flickable::setContentHeight() runs fixupY even when still in bounds and
     // rounds a fractional position. That native correction is not a user's
     // new scroll command: preserve the outstanding destination across it.
-    if (running() && m_view && sender() == m_view &&
-        senderSignalIndex() == m_view->metaObject()->indexOfSignal("contentYChanged()")) {
+    if (running() && m_view) {
         const qreal current = m_view->property("contentY").toReal();
         const qreal expected = m_animation.currentValue().toReal();
         if (qFuzzyCompare(current + 1, expected + 1) ||
             qFuzzyCompare(current + 1, std::round(expected) + 1))
             return;
     }
-    m_animation.stop();
+    cancel();
+}
+void EchoWheelScrollAttached::setMotionEnabled(bool enabled)
+{
+    if (m_motionEnabled == enabled)
+        return;
+    m_motionEnabled = enabled;
+    settleWithoutAnimation();
+    emit motionEnabledChanged();
+}
+void EchoWheelScrollAttached::updateMotionPreference(Qt::MotionPreference preference)
+{
+    m_reducedMotion = preference == Qt::MotionPreference::ReducedMotion;
+    settleWithoutAnimation();
+}
+void EchoWheelScrollAttached::settleWithoutAnimation()
+{
+    if (!running() || (m_motionEnabled && !m_reducedMotion))
+        return;
+    const auto target = m_target;
+    cancel();
+    if (acceptsScroll())
+        writePosition(target);
 }
 void EchoWheelScrollAttached::setEnabled(bool enabled)
 {
@@ -77,12 +115,15 @@ void EchoWheelScrollAttached::setEnabled(bool enabled)
         cancel();
     emit enabledChanged();
 }
+bool EchoWheelScrollAttached::acceptsScroll() const
+{
+    return m_enabled && m_view && m_window && m_window->isVisible() &&
+           m_window->visibility() != QWindow::Minimized && m_view->isVisible() &&
+           m_view->isEnabled() && m_view->property("interactive").toBool();
+}
 bool EchoWheelScrollAttached::scrollBy(qreal distance)
 {
-    if (!m_enabled || !m_view || !m_window || !m_window->isVisible() ||
-        m_window->visibility() == QWindow::Minimized || !m_view->isVisible() ||
-        !m_view->isEnabled() || !m_view->property("interactive").toBool() ||
-        !std::isfinite(distance) || distance == 0)
+    if (!acceptsScroll() || !std::isfinite(distance) || distance == 0)
         return false;
     const qreal current = m_view->property("contentY").toReal();
     const qreal origin = m_view->property("originY").toReal();
@@ -100,6 +141,10 @@ bool EchoWheelScrollAttached::scrollBy(qreal distance)
         return false;
     QMetaObject::invokeMethod(m_view, "cancelFlick");
     m_target = target;
+    if (!m_motionEnabled || m_reducedMotion) {
+        writePosition(target);
+        return true;
+    }
     {
         // Reconfiguring a stopped QVariantAnimation can emit valueChanged at
         // its previous progress. Do not expose those intermediate positions.
