@@ -10,18 +10,43 @@ Item {
     required property RouteController router
     required property bool collapsed
     property bool resourceActive: true
+    property bool modelRepositionPending: false
+    readonly property bool repositionEnabled: resourceActive && Theme.store.motionEnabled
     signal addRequested
     // Natural width establishes the inline header height before the parent
     // assigns its final expanded or collapsed width.
     implicitWidth: 194
     implicitHeight: grid.implicitHeight
-    // A bounded positioner owns every card coordinate. Its move transition
-    // animates incremental model moves without fighting a Layout's geometry.
+    // Only model edits request a move transition. Width/collapse changes belong
+    // to the outer sidebar animation and must not restart per-card animations.
+    Connections {
+        target: shortcuts.layout.shortcutModel
+        function onRowsAboutToBeInserted(): void {
+            shortcuts.modelRepositionPending = shortcuts.repositionEnabled;
+        }
+        function onRowsAboutToBeRemoved(): void {
+            shortcuts.modelRepositionPending = shortcuts.repositionEnabled;
+        }
+        function onRowsAboutToBeMoved(): void {
+            shortcuts.modelRepositionPending = shortcuts.repositionEnabled;
+        }
+    }
+    onWidthChanged: modelRepositionPending = false
+    onCollapsedChanged: modelRepositionPending = false
+    onRepositionEnabledChanged: {
+        if (!repositionEnabled) {
+            modelRepositionPending = false;
+            if (grid)
+                grid.forceLayout();
+        }
+    }
     Flow {
         id: grid
         width: parent.width
         spacing: 8
+        onPositioningComplete: shortcuts.modelRepositionPending = false
         move: Transition {
+            enabled: shortcuts.repositionEnabled && shortcuts.modelRepositionPending
             NumberAnimation {
                 properties: "x,y"
                 duration: Theme.store.motionEnabled ? 160 : 0

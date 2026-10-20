@@ -250,7 +250,7 @@ Item {
                     layout: sidebar.settings.sidebarLayout
                     router: sidebar.router
                     collapsed: sidebar.collapsed
-                    resourceActive: sidebar.visible
+                    resourceActive: sidebar.visible && sidebar.Window.window !== null && sidebar.Window.window.visible && sidebar.Window.window.visibility !== Window.Minimized
                     onAddRequested: shortcutPopupOwner.open()
                 }
                 EchoPopupLoader {

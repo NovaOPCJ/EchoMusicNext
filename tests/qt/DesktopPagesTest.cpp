@@ -7793,6 +7793,143 @@ private slots:
         QVERIFY(!router.canGoBack());
         QCOMPARE(router.mountedCount(), 1);
     }
+    void sidebarShortcutCollapseFrames_data()
+    {
+        QTest::addColumn<int>("themeMode");
+        QTest::addColumn<qreal>("scale");
+        QTest::addColumn<int>("cardCount");
+        for (const auto mode : {ThemeStore::Light, ThemeStore::Dark})
+            for (const auto scale : {1., 1.25})
+                for (const int count : {3, 4})
+                    QTest::newRow(
+                        qPrintable(QString("%1-%2-%3").arg(int(mode)).arg(scale).arg(count)))
+                        << int(mode) << qreal(scale) << count;
+    }
+    void sidebarShortcutCollapseFrames()
+    {
+        QFETCH(int, themeMode);
+        QFETCH(qreal, scale);
+        QFETCH(int, cardCount);
+        Session session;
+        session.theme.setMode(ThemeStore::Mode(themeMode));
+        session.theme.setMotionEnabled(true);
+        session.shell.setMotionEnabled(true);
+        if (scale > 1.)
+            for (int step = 0; step < 5; ++step)
+                session.shell.zoomIn();
+        auto *layout = session.shell.sidebarLayout();
+        layout->toggleShortcut("personal-fm");
+        if (cardCount == 4)
+            layout->toggleShortcut("discover-flow");
+        QVERIFY(session.create());
+        session.window->resize(1150, 800);
+        QVERIFY(Test::prepareNativeInput(session.window));
+        const auto item = [&session](const QString &name) {
+            return visual(session.window->contentItem(), name);
+        };
+        auto *cards = item("sidebarShortcuts");
+        auto *add = item("sidebarShortcutAdd");
+        QVERIFY(cards && add);
+        QTRY_COMPARE(cards->width(), 194.);
+        QTest::qWait(200);
+        QList<QPointer<QQuickItem>> retained;
+        for (const auto &entry : layout->shortcuts()) {
+            auto *card = item("sidebarShortcut-" + entry.toMap()["key"].toString());
+            QVERIFY(card);
+            retained.append(card);
+        }
+        const auto directory = qEnvironmentVariable("ECHO_SIDEBAR_REFLOW_CAPTURE_DIR");
+        const QString prefix = directory + '/' + QString::fromLatin1(QTest::currentDataTag());
+        QJsonArray samples;
+        QList<QPair<QString, QImage>> captures;
+        const auto saveSamples = qScopeGuard([&] {
+            if (directory.isEmpty())
+                return;
+            QDir().mkpath(directory);
+            QFile file(prefix + ".json");
+            if (file.open(QIODevice::WriteOnly))
+                file.write(QJsonDocument(samples).toJson());
+            // PNG encoding is deliberately outside the measured animation.
+            for (const auto &[path, frame] : std::as_const(captures))
+                frame.save(path);
+        });
+        // Warm the real rendering path before timing its changing geometry.
+        QVERIFY(!session.window->grabWindow().isNull());
+        // Two ordinary transitions, then rapid reversal while both directions
+        // are in flight. Sample rendered frames, not only settled endpoints.
+        for (int phase = 0; phase < 3; ++phase) {
+            session.shell.toggleSidebar();
+            QElapsedTimer elapsed;
+            elapsed.start();
+            int reversals = 0, frameCount = 0;
+            bool intermediateWidth = false;
+            while (elapsed.elapsed() < 340 || frameCount < 4) {
+                if (phase == 2 && reversals < 2 && elapsed.elapsed() >= 64 * (reversals + 1)) {
+                    session.shell.toggleSidebar();
+                    ++reversals;
+                }
+                session.window->update();
+                QTest::qWait(10);
+                const auto frame = session.window->grabWindow();
+                QVERIFY(!frame.isNull());
+                ++frameCount;
+                const bool collapsed = session.shell.sidebarCollapsed();
+                const qreal cellWidth = collapsed ? cards->width() : (cards->width() - 8) / 2;
+                intermediateWidth |= cards->width() > 44 && cards->width() < 194;
+                QJsonArray positions;
+                QString failure;
+                for (int index = 0; index <= retained.size(); ++index) {
+                    auto *card = index == retained.size() ? add : retained[index].data();
+                    QVERIFY(card);
+                    const bool fullAdd = card == add && cardCount % 2 == 0;
+                    const qreal x = collapsed || fullAdd ? 0 : (index % 2) * (cellWidth + 8);
+                    const qreal y = collapsed ? index * 48 : (index / 2) * 54;
+                    positions.append(QJsonObject{{"name", card->objectName()},
+                                                 {"x", card->x()},
+                                                 {"y", card->y()},
+                                                 {"targetX", x},
+                                                 {"targetY", y}});
+                    if (qAbs(card->x() - x) > .01 || qAbs(card->y() - y) > .01)
+                        failure = QString("%1 phase %2 at %3ms: (%4,%5), target (%6,%7), width %8")
+                                      .arg(card->objectName())
+                                      .arg(phase)
+                                      .arg(elapsed.elapsed())
+                                      .arg(card->x())
+                                      .arg(card->y())
+                                      .arg(x)
+                                      .arg(y)
+                                      .arg(cards->width());
+                }
+                samples.append(QJsonObject{{"phase", phase},
+                                           {"elapsed", elapsed.elapsed()},
+                                           {"collapsed", collapsed},
+                                           {"width", cards->width()},
+                                           {"positions", positions}});
+                if (!directory.isEmpty() && frameCount <= 12 &&
+                    (frameCount % 2 == 0 || !failure.isEmpty())) {
+                    const auto origin = cards->mapToScene(QPointF());
+                    const auto dpr = session.window->devicePixelRatio();
+                    const QRect crop(qRound(origin.x() * dpr), qRound(origin.y() * dpr),
+                                     qRound(220 * scale * dpr), qRound(260 * scale * dpr));
+                    captures.append({prefix + QString("-%1-%2.png").arg(phase).arg(frameCount),
+                                     frame.copy(crop.intersected(frame.rect()))});
+                }
+                QVERIFY2(failure.isEmpty(), qPrintable(failure));
+            }
+            QVERIFY(frameCount >= 4);
+            QVERIFY(intermediateWidth);
+        }
+        session.theme.setMotionEnabled(false);
+        session.shell.setMotionEnabled(false);
+        session.shell.toggleSidebar();
+        QTRY_COMPARE(cards->width(), 194.);
+        session.window->hide();
+        session.shell.toggleSidebar();
+        session.window->show();
+        QTRY_COMPARE(cards->width(), 44.);
+        for (const auto &card : std::as_const(retained))
+            QVERIFY(card);
+    }
     void sidebarShortcutHoverDragAcrossThemesAndScales_data()
     {
         QTest::addColumn<int>("themeMode");
