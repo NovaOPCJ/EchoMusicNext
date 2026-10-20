@@ -3005,7 +3005,8 @@ private slots:
                     for (int width : {500, 1150, 1600}) {
                         session.window->resize(width, 750);
                         QTRY_VERIFY(qAbs(loader->mapToScene({loader->width(), 0}).x() -
-                                         (session.window->width() - 12)) < .6);
+                                         (session.window->width() - 12 * session.shell.uiScale())) <
+                                    .6);
                         if (!nativeCaption) {
                             for (const auto *name :
                                  {"windowFullscreenAction", "windowMinimizeAction",
@@ -3013,9 +3014,10 @@ private slots:
                                 auto *button = visual(overlayActions, name);
                                 QVERIFY(button && button->isVisible());
                                 const auto rect = button->mapRectToScene(button->boundingRect());
-                                QVERIFY(qAbs(rect.width() - 34) < .6);
-                                QVERIFY(qAbs(rect.height() - 34) < .6);
-                                QVERIFY(qAbs(rect.center().y() - 23) < .6);
+                                QVERIFY(qAbs(rect.width() - 34 * session.shell.uiScale()) < .6);
+                                QVERIFY(qAbs(rect.height() - 34 * session.shell.uiScale()) < .6);
+                                QVERIFY(qAbs(rect.center().y() - 23 * session.shell.uiScale()) <
+                                        .6);
                             }
                         }
                     }
@@ -4243,6 +4245,76 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
         QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
     }
+    void playbackZoomShortcutsFollowSharedScale()
+    {
+        Session session;
+        session.theme.setMotionEnabled(false);
+        PlaybackService playback(session.api, session.preferences);
+        QSignalSpy warnings(&session.engine, &QQmlEngine::warnings);
+        QVERIFY(session.create(&playback));
+        const auto cleanup = qScopeGuard([&session] {
+            session.root.reset();
+            session.window = nullptr;
+        });
+        QVERIFY(Test::prepareNativeInput(session.window));
+        session.shell.resetZoom();
+        QTest::keyClick(session.window, Qt::Key_Equal, Qt::ControlModifier);
+        QTRY_COMPARE(session.shell.uiScale(), 1.05);
+        auto *owner = session.root->findChild<QObject *>("playbackPageOwner");
+        QVERIFY(owner);
+        QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariant(QVariantMap{}))));
+        QPointer<QObject> page = owner->property("item").value<QObject *>();
+        QTRY_VERIFY(page && page->property("opened").toBool());
+        auto *collapse = visual(session.window->contentItem(), "playbackCollapseAction");
+        auto *cover = visual(session.window->contentItem(), "playbackPageCover");
+        QVERIFY(collapse && cover);
+#ifdef Q_OS_MACOS
+        const auto nativeFrames = nativeWindowAppearance(session.window).value("buttonFrames");
+#endif
+        for (int step = 0; step < 4; ++step)
+            QTest::keyClick(session.window, Qt::Key_Equal, Qt::ControlModifier);
+        QTRY_COMPARE(session.shell.uiScale(), 1.25);
+        QTRY_COMPARE(page->property("uiScale").toReal(), 1.25);
+        QTRY_VERIFY(qAbs(page->property("width").toReal() * 1.25 - session.window->width()) < .01);
+        QTRY_VERIFY(qAbs(page->property("height").toReal() * 1.25 - session.window->height()) <
+                    .01);
+        QVERIFY(qAbs(collapse->mapRectToScene(collapse->boundingRect()).width() - 42.5) < .01);
+        QVERIFY(qAbs(cover->mapRectToScene(cover->boundingRect()).width() - cover->width() * 1.25) <
+                .01);
+#ifdef Q_OS_MACOS
+        QCOMPARE(nativeWindowAppearance(session.window).value("buttonFrames"), nativeFrames);
+#endif
+        QTest::keyClick(session.window, Qt::Key_Minus, Qt::ControlModifier);
+        QTRY_COMPARE(session.shell.uiScale(), 1.2);
+        QTest::keyClick(session.window, Qt::Key_0, Qt::ControlModifier);
+        QTRY_COMPARE(session.shell.uiScale(), 1.);
+        // A second app window must not change the main window's UI zoom.
+        {
+            QQuickWindow auxiliary;
+            auxiliary.resize(300, 120);
+            auxiliary.show();
+            QVERIFY(Test::prepareNativeInput(&auxiliary));
+            QTRY_VERIFY(!session.window->isActive());
+            QTest::keyClick(&auxiliary, Qt::Key_Equal, Qt::ControlModifier);
+            QCoreApplication::processEvents();
+            QCOMPARE(session.shell.uiScale(), 1.);
+        }
+        QVERIFY(Test::prepareNativeInput(session.window));
+        QTest::keyClick(session.window, Qt::Key_Equal, Qt::ControlModifier);
+        QTRY_COMPARE(session.shell.uiScale(), 1.05);
+        QVERIFY(QMetaObject::invokeMethod(page, "close"));
+        QTRY_VERIFY(page.isNull());
+        QCOMPARE(session.shell.uiScale(), 1.05);
+        QVERIFY(QMetaObject::invokeMethod(owner, "open", Q_ARG(QVariant, QVariant(QVariantMap{}))));
+        page = owner->property("item").value<QObject *>();
+        QTRY_VERIFY(page && page->property("opened").toBool());
+        QCOMPARE(page->property("uiScale").toReal(), 1.05);
+        QVERIFY(QMetaObject::invokeMethod(page, "close"));
+        QTRY_VERIFY(page.isNull());
+        for (const auto &warning : warnings)
+            qWarning() << warning;
+        QCOMPARE(warnings.size(), 0);
+    }
     void playbackChromeMatchesSource()
     {
         const auto cursor = QCursor::pos();
@@ -4298,22 +4370,24 @@ private slots:
                         session.shell.zoomIn();
                 const auto center = collapse->mapToScene({17, 17});
                 if (!session.windows.macOS()) {
-                    QVERIFY(qAbs(center.y() - 23) < .5);
-                    QVERIFY(qAbs(collapse->mapToScene({0, 0}).x() - 16) < .5);
+                    QVERIFY(qAbs(center.y() - 23 * session.shell.uiScale()) < .5);
+                    QVERIFY(qAbs(collapse->mapToScene({0, 0}).x() - 16 * session.shell.uiScale()) <
+                            .5);
                 }
                 const auto sceneRect = collapse->mapRectToScene(collapse->boundingRect());
-                QVERIFY(qAbs(sceneRect.width() - 34) < .5);
-                QVERIFY(qAbs(sceneRect.height() - 34) < .5);
+                QVERIFY(qAbs(sceneRect.width() - 34 * session.shell.uiScale()) < .5);
+                QVERIFY(qAbs(sceneRect.height() - 34 * session.shell.uiScale()) < .5);
                 auto *icon = visual(collapse, "iconImage");
                 QVERIFY(icon);
                 const auto iconRect = icon->mapRectToScene(icon->boundingRect());
-                QVERIFY(qAbs(iconRect.width() - 20) < .5);
-                QVERIFY(qAbs(iconRect.height() - 20) < .5);
+                QVERIFY(qAbs(iconRect.width() - 20 * session.shell.uiScale()) < .5);
+                QVERIFY(qAbs(iconRect.height() - 20 * session.shell.uiScale()) < .5);
 #ifdef Q_OS_MACOS
                 if (QGuiApplication::platformName() == "cocoa") {
                     const auto bounds = session.windows.nativeCaptionBounds();
                     QVERIFY(!bounds.isEmpty());
-                    QVERIFY(qAbs(collapse->mapToScene({0, 0}).x() - bounds.right() - 8) < .5);
+                    QVERIFY(qAbs(collapse->mapToScene({0, 0}).x() - bounds.right() -
+                                 8 * session.shell.uiScale()) < .5);
                     QTRY_VERIFY(qAbs(nativeWindowAppearance(session.window)
                                          .value("buttonFrames")
                                          .toList()

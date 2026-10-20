@@ -5,6 +5,8 @@
 #include <QQuickItem>
 #include <QResizeEvent>
 #include <QSGRendererInterface>
+#include <QAbstractEventDispatcher>
+#include <QScopeGuard>
 #include <QtTest>
 #include <atomic>
 #include <memory>
@@ -33,6 +35,67 @@ class WindowResizeTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void nativeObserverSurvivesBypassedSubclass()
+    {
+#ifndef Q_OS_WIN
+        QSKIP("The independent Win32 message path requires Windows");
+#else
+        ResizeWindow window;
+        window.resize(500, 400);
+        connect(
+            &window, &QQuickWindow::afterFrameEnd, &window,
+            [frames = window.frames] { frames->fetch_add(1); }, Qt::DirectConnection);
+        window.show();
+        QVERIFY(Test::prepareNativeInput(&window));
+        const auto api = window.rendererInterface()->graphicsApi();
+        if (!QSGRendererInterface::isApiRhiBased(api) || api == QSGRendererInterface::Null)
+            QSKIP("The presentation barrier requires a native RHI window");
+        QTRY_VERIFY(window.frames->load() > 0);
+        const auto handle = reinterpret_cast<HWND>(window.winId());
+        const auto originalProcedure = GetWindowLongPtrW(handle, GWLP_WNDPROC);
+        QVERIFY(originalProcedure);
+        int waits = 0;
+        WindowResizeSync sync(&window, [&] {
+            ++waits;
+            QCOMPARE(window.contentItem()->size(), QSizeF(window.size()));
+            QVERIFY(window.frames->load() > window.frameAtResize);
+        });
+        {
+            // Simulate a later WNDPROC replacement bypassing comctl32's chain.
+            // Production code never replaces Qt's procedure. Restore before
+            // the controller or native surface is destroyed, even on failure.
+            const auto subclassProcedure =
+                SetWindowLongPtrW(handle, GWLP_WNDPROC, originalProcedure);
+            QVERIFY(subclassProcedure && subclassProcedure != originalProcedure);
+            const auto restore =
+                qScopeGuard([&] { SetWindowLongPtrW(handle, GWLP_WNDPROC, subclassProcedure); });
+            MSG foreign{};
+            foreign.hwnd = GetDesktopWindow();
+            foreign.message = WM_ENTERSIZEMOVE;
+            qintptr result = 0;
+            QVERIFY(!QCoreApplication::eventDispatcher()->filterNativeEvent("windows_generic_MSG",
+                                                                            &foreign, &result));
+            window.resize(520, 400);
+            QTest::qWait(100);
+            QCOMPARE(waits, 0); // A different HWND must not activate this window.
+            SendMessageW(handle, WM_ENTERSIZEMOVE, 0, 0);
+            window.resize(540, 400);
+            QTRY_COMPARE(waits, 1);
+            SendMessageW(handle, WM_EXITSIZEMOVE, 0, 0);
+            window.resize(560, 400);
+            QTest::qWait(100);
+            QCOMPARE(waits, 1);
+        }
+        window.destroy();
+        window.show();
+        QVERIFY(Test::prepareNativeInput(&window));
+        const auto recreated = reinterpret_cast<HWND>(window.winId());
+        SendMessageW(recreated, WM_ENTERSIZEMOVE, 0, 0);
+        window.resize(600, 400);
+        QTRY_COMPARE(waits, 2);
+        SendMessageW(recreated, WM_EXITSIZEMOVE, 0, 0);
+#endif
+    }
     void newSizeFrameCompletesBeforeCompositorWait()
     {
         ResizeWindow window;

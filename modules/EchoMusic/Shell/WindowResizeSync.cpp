@@ -1,5 +1,6 @@
 #include "WindowResizeSync.h"
 #include <QCoreApplication>
+#include <QAbstractNativeEventFilter>
 #include <QExposeEvent>
 #include <QGuiApplication>
 #include <QPlatformSurfaceEvent>
@@ -37,30 +38,91 @@ struct WindowResizeSync::Frames
     std::atomic<quint64> submitted{0}, synchronizingSize{0}, submittedSize{0};
 };
 struct WindowResizeSync::Native
+#ifdef Q_OS_WIN
+    : QAbstractNativeEventFilter
+#endif
 {
 #ifdef Q_OS_WIN
     WindowResizeSync *owner;
     HWND handle = nullptr;
     unsigned sizeDeliveryDepth = 0;
-    explicit Native(WindowResizeSync *sync) : owner(sync) {}
+    explicit Native(WindowResizeSync *sync) : owner(sync)
+    {
+        QCoreApplication::instance()->installNativeEventFilter(this);
+    }
     ~Native()
     {
+        if (auto *app = QCoreApplication::instance())
+            app->removeNativeEventFilter(this);
         detach();
+    }
+    bool installed() const
+    {
+        DWORD_PTR data = 0;
+        return handle &&
+               GetWindowSubclass(handle, procedure, reinterpret_cast<UINT_PTR>(this), &data) &&
+               data == reinterpret_cast<DWORD_PTR>(this);
     }
     void detach()
     {
-        if (handle)
+        if (handle) {
             RemoveWindowSubclass(handle, procedure, reinterpret_cast<UINT_PTR>(this));
+            if (owner->m_diagnostics)
+                qCInfo(resizeLog) << "Resize subclass detached hwnd=" << quintptr(handle);
+        }
         handle = nullptr;
     }
     void attach(HWND window)
     {
+        if (window == handle && installed())
+            return;
         detach();
         if (window && SetWindowSubclass(window, procedure, reinterpret_cast<UINT_PTR>(this),
                                         reinterpret_cast<DWORD_PTR>(this)))
             handle = window;
         else
-            qWarning("Cannot install native resize presentation sync");
+            qCWarning(resizeLog) << "Cannot install native resize presentation sync"
+                                 << "hwnd=" << quintptr(window)
+                                 << "window-thread=" << GetWindowThreadProcessId(window, nullptr)
+                                 << "current-thread=" << GetCurrentThreadId();
+        if (owner->m_diagnostics)
+            qCInfo(resizeLog) << "Resize subclass attachment hwnd=" << quintptr(window)
+                              << "installed=" << installed();
+    }
+    bool nativeEventFilter(const QByteArray &type, void *message, qintptr *) override
+    {
+        if (type != "windows_generic_MSG")
+            return false;
+        const auto *msg = static_cast<MSG *>(message);
+        // This observer is inside Qt's own window procedure, independent of
+        // the comctl32 subclass. Do not create a native surface from a message.
+        const auto window = owner->m_window;
+        if (!msg || !window || !window->handle() ||
+            msg->hwnd != reinterpret_cast<HWND>(window->winId()))
+            return false;
+        // Qt 6.12 excludes sent WM_SIZING messages from this global filter.
+        // ENTER/EXIT and SIZE do reach it; recover a missed ENTER only when
+        // Windows itself confirms a modal move/size loop, never from SIZE alone.
+        if (msg->message == WM_SIZE && !owner->m_interactive) {
+            GUITHREADINFO gui{};
+            gui.cbSize = sizeof(gui);
+            if (GetGUIThreadInfo(GetCurrentThreadId(), &gui) && (gui.flags & GUI_INMOVESIZE) &&
+                gui.hwndMoveSize == msg->hwnd)
+                owner->setInteractiveResize(true);
+        }
+        if (msg->message == WM_ENTERSIZEMOVE) {
+            owner->setInteractiveResize(true);
+        } else if (msg->message == WM_EXITSIZEMOVE || msg->message == WM_CANCELMODE ||
+                   msg->message == WM_NCDESTROY) {
+            owner->setInteractiveResize(false);
+        } else if (msg->message == WM_SIZE && owner->m_interactive) {
+            ++owner->m_observedNativeSizes;
+            RECT client;
+            if (GetClientRect(msg->hwnd, &client))
+                owner->m_nativePixels = {client.right - client.left, client.bottom - client.top};
+        }
+        // Observe only. In particular, do not render before Qt processes SIZE.
+        return false;
     }
     static LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
                                       UINT_PTR, DWORD_PTR data)
@@ -73,8 +135,11 @@ struct WindowResizeSync::Native
             sync->setInteractiveResize(false);
         // Qt must first update its platform geometry. Never consume WM_SIZE or
         // replace its window procedure; preserve the subclass chain.
-        if (message == WM_SIZE)
+        if (message == WM_SIZE) {
             ++native->sizeDeliveryDepth;
+            if (sync->m_interactive)
+                ++sync->m_subclassSizes;
+        }
         const auto result = DefSubclassProc(window, message, wParam, lParam);
         if (!sync)
             return result;
@@ -166,6 +231,14 @@ WindowResizeSync::WindowResizeSync(QQuickWindow *window, std::function<void()> c
         m_native->attach(reinterpret_cast<HWND>(window->winId()));
     }
 #endif
+    if (m_diagnostics)
+        qCInfo(resizeLog) << "Resize sync initialized protocol=2"
+                          << "platform=" << QGuiApplication::platformName()
+#ifdef Q_OS_WIN
+                          << "native-observer=" << bool(m_native)
+                          << "subclass-installed=" << (m_native && m_native->installed())
+#endif
+            ;
 }
 WindowResizeSync::~WindowResizeSync() = default;
 void WindowResizeSync::setInteractiveResize(bool active)
@@ -175,6 +248,7 @@ void WindowResizeSync::setInteractiveResize(bool active)
     m_interactive = active;
     if (active) {
         m_nativeSteps = m_qtSteps = m_explicitExposes = m_incompleteFrames = 0;
+        m_observedNativeSizes = m_subclassSizes = 0;
         m_maximumPaintNs = m_maximumCompositionNs = 0;
         m_nativePixels = {};
         if (m_diagnostics && m_window)
@@ -185,6 +259,8 @@ void WindowResizeSync::setInteractiveResize(bool active)
     } else {
         if (m_diagnostics)
             qCInfo(resizeLog) << "Resize completed" << "native-steps=" << m_nativeSteps
+                              << "observed-native-sizes=" << m_observedNativeSizes
+                              << "subclass-sizes=" << m_subclassSizes
                               << "late-qt-steps=" << m_qtSteps
                               << "explicit-exposes=" << m_explicitExposes
                               << "incomplete-frames=" << m_incompleteFrames
@@ -205,9 +281,11 @@ bool WindowResizeSync::frameMatchesWindow(quint64 after) const
 bool WindowResizeSync::nativeGeometryMatchesWindow() const
 {
 #ifdef Q_OS_WIN
-    if (m_native && m_native->handle && m_window) {
+    if (m_native && m_window && m_window->handle()) {
         RECT client;
-        if (!GetClientRect(m_native->handle, &client))
+        // The independent Qt path must validate the current HWND even if
+        // subclass installation failed or its recorded handle is stale.
+        if (!GetClientRect(reinterpret_cast<HWND>(m_window->winId()), &client))
             return false;
         const auto expected = m_window->size() * m_window->effectiveDevicePixelRatio();
         // Qt's DIP geometry is integral, so fractional DPR can round by one
@@ -268,6 +346,9 @@ bool WindowResizeSync::eventFilter(QObject *watched, QEvent *event)
             setInteractiveResize(false);
         }
     }
+    if (m_native && (event->type() == QEvent::Show || event->type() == QEvent::WinIdChange) &&
+        m_window->handle())
+        m_native->attach(reinterpret_cast<HWND>(m_window->winId()));
 #endif
     if (event->type() == QEvent::Hide)
         setInteractiveResize(false);

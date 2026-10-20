@@ -141,15 +141,23 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: [StandardKey.ZoomIn, "Ctrl+="]
+        // Application context reaches modal playback/settings popups; the
+        // active-window gate keeps Mini and desktop lyrics out of main UI zoom.
+        context: Qt.ApplicationShortcut
+        enabled: mainWindow.active
         onActivated: mainWindow.shellSettings.zoomIn()
     }
     Shortcut {
         sequences: [StandardKey.ZoomOut]
+        context: Qt.ApplicationShortcut
+        enabled: mainWindow.active
         onActivated: mainWindow.shellSettings.zoomOut()
     }
     Shortcut {
         // Qt maps Ctrl to Command on macOS; Meta would mean its Control key.
         sequence: "Ctrl+0"
+        context: Qt.ApplicationShortcut
+        enabled: mainWindow.active
         onActivated: mainWindow.shellSettings.resetZoom()
     }
     Loader {

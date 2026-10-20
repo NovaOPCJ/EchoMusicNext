@@ -33,6 +33,7 @@ private:
     bool m_delivering = false;
     bool m_warned = false;
     bool m_diagnostics = false;
+    quint64 m_observedNativeSizes = 0, m_subclassSizes = 0;
     quint64 m_nativeSteps = 0, m_qtSteps = 0, m_explicitExposes = 0, m_incompleteFrames = 0;
     qint64 m_maximumPaintNs = 0, m_maximumCompositionNs = 0;
     QSize m_nativePixels;

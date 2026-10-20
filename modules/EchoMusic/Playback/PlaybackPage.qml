@@ -241,16 +241,13 @@ Popup {
             sourceCover: page.sourceCover
             targetCover: albumCover
         }
-        // Window controls keep their window logical size on every platform;
-        // this cancels body zoom while preserving Qt's system DPI scaling.
+        // AppKit owns the native traffic lights outside this subtree. Every
+        // application control follows the same zoom as the playback content.
         Item {
             id: windowChrome
             objectName: "playbackWindowChrome"
-            readonly property real chromeScale: 1 / page.uiScale
-            width: parent.width / chromeScale
-            height: 46
-            scale: chromeScale
-            transformOrigin: Item.TopLeft
+            width: parent.width
+            height: Math.max(46, 35 / page.uiScale)
             MouseArea {
                 anchors.fill: parent
                 onPressed: page.titleDragRequested()
@@ -267,9 +264,9 @@ Popup {
                 objectName: "playbackCollapseAction"
                 opacity: motion.hostOpacity
                 // AppKit owns its default buttons; the adjacent action uses
-                // their read-only bounds in the same window coordinate space.
-                x: page.hasNativeWindowControls ? page.nativeWindowControlsBounds.x + page.nativeWindowControlsBounds.width + 8 : 16
-                y: page.hasNativeWindowControls ? page.nativeWindowControlsBounds.y + page.nativeWindowControlsBounds.height / 2 - height / 2 : (parent.height - height) / 2
+                // their read-only window bounds converted to page coordinates.
+                x: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.x + page.nativeWindowControlsBounds.width) / page.uiScale + 8 : 16
+                y: page.hasNativeWindowControls ? (page.nativeWindowControlsBounds.y + page.nativeWindowControlsBounds.height / 2) / page.uiScale - height / 2 : (parent.height - height) / 2
                 hoverBackground: Qt.platform.os !== "osx"
                 implicitWidth: 34
                 implicitHeight: 34
