@@ -7,7 +7,7 @@ import EchoMusic.Theme
 EchoSoftButton {
     id: button
     property bool iconOnly: false
-    property string tooltipText: ""
+    property string tooltipText: iconOnly ? text : ""
     implicitHeight: EchoControlSize.heightFor(size)
     implicitWidth: iconOnly ? 36 : Math.ceil(contentItem.implicitWidth + leftPadding + rightPadding)
     leftPadding: iconOnly ? 0 : EchoControlSize.buttonPaddingFor(size)

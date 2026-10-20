@@ -1,4 +1,5 @@
 #include "EchoIconSource.h"
+#include "EchoImageMetrics.h"
 #include "EchoWheelScroll.h"
 #include <QStyleHints>
 #include <QAccessibilityHints>
@@ -817,6 +818,120 @@ Window {
         QVERIFY(QMetaObject::invokeMethod(popup, "close"));
         QTRY_VERIFY(popup.isNull());
     }
+    void imageDensityTracksScaleWithoutTrackingScroll()
+    {
+        QQuickWindow window;
+        QQuickItem parent(window.contentItem());
+        QQuickItem item(&parent);
+        item.setSize({178, 178});
+        EchoImageMetrics metrics;
+        metrics.setItem(&item);
+        metrics.setSource(QUrl("https://imgessl.kugou.com/custom/240/20210507/art.jpg"));
+        parent.setScale(2);
+        item.setScale(1.25);
+        const auto required = qCeil(178 * 2 * 1.25 * window.effectiveDevicePixelRatio());
+        QVERIFY(metrics.pixelSize().width() >= required);
+        QVERIFY(metrics.resolvedSource().path().contains("/800/") ||
+                metrics.resolvedSource().path().contains("/1600/"));
+        const auto full = metrics.pixelSize();
+        QSignalSpy density(&metrics, &EchoImageMetrics::metricsChanged);
+        parent.setPosition({120, -4000});
+        item.setPosition({40, 80});
+        QCOMPARE(density.size(), 0); // Scrolling does not drive artwork resolution work.
+        item.setScale(.1);
+        QCOMPARE(metrics.pixelSize(), full); // Collapsing keeps the loaded high-water copy.
+        const QUrl signedArtwork("https://imgessl.kugou.com/custom/240/date/art.jpg?sig=keep");
+        metrics.setSource(signedArtwork);
+        QCOMPARE(metrics.resolvedSource(), signedArtwork);
+        const QUrl foreign("https://images.example/custom/240/date/a%2Fb.jpg?size=240&sig=keep");
+        metrics.setSource(foreign);
+        QCOMPARE(metrics.resolvedSource(), foreign);
+        const auto file = QUrl::fromLocalFile("/tmp/a-{size}.png");
+        metrics.setSource(file);
+        QCOMPARE(metrics.resolvedSource(), file);
+        metrics.setActive(false);
+        QVERIFY(metrics.resolvedSource().isEmpty());
+        QVERIFY(metrics.pixelSize().isEmpty());
+        parent.setScale(4);
+        metrics.setActive(true);
+        QVERIFY(metrics.pixelSize().width() < full.width()); // Fresh active cycle resets the peak.
+    }
+    void coverKeepsNativeResolutionUnderAncestorZoom()
+    {
+        ControlsSession session;
+        QVERIFY(session.create());
+        if (session.window->rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
+            QSKIP("Artwork sampling needs native RHI");
+        QImage pattern(1024, 1024, QImage::Format_RGB32);
+        for (int y = 0; y < pattern.height(); ++y)
+            for (int x = 0; x < pattern.width(); ++x)
+                pattern.setPixelColor(
+                    x, y, QColor((x / 8 % 2) * 255, (y / 8 % 2) * 255, (x / 12 % 2) * 255));
+        const auto path = session.directory.filePath("cover-resolution.png");
+        QVERIFY(pattern.save(path));
+        QQmlComponent component(&session.engine);
+        component.setData(R"(
+import QtQuick
+import EchoMusic.Controls
+Item {
+ width: 520; height: 200
+ property real zoom: 1
+ scale: zoom; transformOrigin: Item.TopLeft
+ EchoCover { objectName: "zoomCover"; x: 32; y: 32; width: 100; height: 100 }
+ Image { objectName: "directCover"; x: 288; y: 32; width: 100; height: 100; fillMode: Image.PreserveAspectCrop }
+})",
+                          QUrl());
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto *host = qobject_cast<QQuickItem *>(object.data());
+        host->setParentItem(session.window->contentItem());
+        auto *cover = findVisual(host, "zoomCover");
+        auto *direct = findVisual(host, "directCover");
+        QVERIFY(cover && direct);
+        cover->setProperty("source", QUrl::fromLocalFile(path));
+        direct->setProperty("source", QUrl::fromLocalFile(path));
+        QTRY_COMPARE(cover->property("status").toInt(), 1);
+        auto *image = findVisual(cover, "coverImage");
+        QVERIFY(image);
+        for (const qreal zoom : {1., 1.25, 1.5}) {
+            host->setProperty("zoom", zoom);
+            const auto needed = qCeil(100 * zoom * session.window->devicePixelRatio());
+            QTRY_VERIFY(image->property("sourceSize").toSize().width() >= needed);
+            direct->setProperty("sourceSize", image->property("sourceSize"));
+            QTRY_COMPARE(direct->property("status").toInt(), 1);
+            auto *capture = findVisual(cover, "coverCapture");
+            auto *effect = findVisual(cover, "coverMaskEffect");
+            QVERIFY(capture && effect);
+            const auto texture = renderedTextureSize(session.window, capture);
+            QVERIFY(texture.width() >= needed && texture.height() >= needed);
+            QCOMPARE(effect->property("hasProxySource").toBool(), false);
+            QTest::qWait(60);
+            const auto frame = session.window->grabWindow();
+            const auto crop = [&](QQuickItem *item) {
+                const auto r = item->mapRectToScene({10, 10, 80, 80});
+                return frame.copy(QRect(qRound(r.x() * frame.devicePixelRatio()),
+                                        qRound(r.y() * frame.devicePixelRatio()),
+                                        qRound(r.width() * frame.devicePixelRatio()),
+                                        qRound(r.height() * frame.devicePixelRatio())));
+            };
+            const auto masked = crop(cover), reference = crop(direct);
+            QCOMPARE(masked.size(), reference.size());
+            double error = 0;
+            for (int y = 0; y < masked.height(); ++y)
+                for (int x = 0; x < masked.width(); ++x)
+                    error += qAbs(qGray(masked.pixel(x, y)) - qGray(reference.pixel(x, y)));
+            error /= masked.width() * masked.height();
+            qInfo() << "Artwork DPR" << frame.devicePixelRatio() << "zoom" << zoom << "texture"
+                    << texture << "mean difference" << error;
+            QVERIFY2(error < 2., qPrintable(QString::number(error)));
+            const auto artifacts = qEnvironmentVariable("ECHO_COVER_CAPTURE_DIR");
+            if (!artifacts.isEmpty()) {
+                QDir().mkpath(artifacts);
+                QVERIFY(masked.save(artifacts + QString("/masked-%1.png").arg(zoom)));
+                QVERIFY(reference.save(artifacts + QString("/direct-%1.png").arg(zoom)));
+            }
+        }
+    }
     void coverCropAndRoundedPixels()
     {
         ControlsSession session;
@@ -1541,6 +1656,22 @@ Window {
                 button->setProperty("glyph", "play");
                 QTRY_COMPARE(icon->property("phase").toReal(), 0.);
             }
+        }
+        for (const bool playingBeforeUncover : {false, true}) {
+            button->setProperty("iconCovered", true);
+            QVERIFY(!icon->isVisible());
+            button->setProperty("glyph", "play");
+            QCOMPARE(icon->property("phase").toReal(), 0.);
+            if (playingBeforeUncover)
+                button->setProperty("glyph", "pause");
+            button->setProperty("iconCovered", false);
+            if (!playingBeforeUncover)
+                button->setProperty("glyph", "pause");
+            QCOMPARE(icon->property("phase").toReal(), 1.);
+            QVERIFY(!icon->property("transitioning").toBool());
+            button->setProperty("glyph", "play");
+            QVERIFY(icon->property("transitioning").toBool());
+            QTRY_COMPARE(icon->property("phase").toReal(), 0.);
         }
         QScopedPointer<QObject> initiallyPlaying(
             component.createWithInitialProperties({{"glyph", "pause"}}));
@@ -3226,7 +3357,10 @@ Item {
         auto *button = session.item("iconButton");
         auto *popup = session.root->findChild<QObject *>("tooltipTestPopup");
         QVERIFY(button && popup);
-        QVERIFY(!button->findChild<QObject *>("iconButtonToolTip"));
+        auto *defaultTip = button->findChild<QObject *>("iconButtonToolTip");
+        QVERIFY(defaultTip);
+        QCOMPARE(defaultTip->property("text").toString(), QString("Favorite"));
+        QVERIFY(!defaultTip->property("popup").value<QObject *>());
         button->setProperty("tooltipText", QStringLiteral("Favorite explanation"));
         auto *tip = button->findChild<QObject *>("iconButtonToolTip");
         QVERIFY(tip);

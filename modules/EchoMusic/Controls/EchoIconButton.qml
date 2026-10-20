@@ -6,9 +6,11 @@ import EchoMusic.Theme
 ToolButton {
     id: control
     required property string glyph
-    // Accessible action names are mandatory; hover explanations are opt-in.
-    property string tooltipText: ""
+    // Pure icon actions expose their label on hover as well as to accessibility.
+    property string tooltipText: text
     property bool animatePlayPause: false
+    // Cover presentation without replacing the semantic glyph/state.
+    property bool iconCovered: false
     property real playIconOffset: 0
     property ThemeColors colors: Theme.colors
     property bool hoverBackground: true
@@ -23,8 +25,8 @@ ToolButton {
     hoverEnabled: true
     Accessible.name: text
     Loader {
-        // Most icon actions have an accessible name and need no hover hint.
-        // Do not create a native Popup and its bindings for an empty hint.
+        // This is only a trigger recipe. Native hints are still created after
+        // the hover delay and destroyed when the interaction ends.
         active: control.tooltipText.length > 0
         sourceComponent: EchoToolTip {
             objectName: "iconButtonToolTip"
@@ -34,6 +36,7 @@ ToolButton {
         }
     }
     contentItem: Loader {
+        visible: !control.iconCovered
         opacity: control.enabled ? 1 : control.disabledOpacity
         sourceComponent: control.animatePlayPause ? animatedIcon : staticIcon
     }
@@ -48,6 +51,7 @@ ToolButton {
         id: animatedIcon
         EchoPlayPauseIcon {
             playing: control.glyph === "pause"
+            covered: control.iconCovered
             color: control.foreground
             playOffset: control.playIconOffset
             visible: control.glyph === "play" || control.glyph === "pause"

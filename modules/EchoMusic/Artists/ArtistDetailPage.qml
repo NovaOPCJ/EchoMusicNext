@@ -331,10 +331,10 @@ RoutePage {
         objectName: "artistIntroDialogOwner"
         hostItem: page
         sourceComponent: Component {
-            EchoDialog {
+            EchoTextDialog {
                 id: intro
                 heading: qsTr("歌手介绍")
-                description: page.detail.detail.description || ""
+                text: page.detail.detail.description || ""
                 preferredWidth: 520
                 uiScale: page.settings.uiScale
             }

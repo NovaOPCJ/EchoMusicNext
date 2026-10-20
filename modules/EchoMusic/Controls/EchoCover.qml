@@ -20,6 +20,13 @@ Item {
     property color placeholderColor: colors.hover
     implicitWidth: 48
     implicitHeight: 48
+    EchoImageMetrics {
+        id: metrics
+        objectName: "coverMetrics"
+        item: control
+        active: control.resourceActive && control.visible
+        source: control.source
+    }
     Rectangle {
         id: placeholder
         anchors.fill: parent
@@ -38,10 +45,9 @@ Item {
         id: cover
         objectName: "coverImage"
         anchors.fill: parent
-        source: control.resourceActive ? control.source : ""
+        source: metrics.resolvedSource
         asynchronous: true
-        sourceSize.width: Math.ceil(control.width * Screen.devicePixelRatio / 8) * 8
-        sourceSize.height: Math.ceil(control.height * Screen.devicePixelRatio / 8) * 8
+        sourceSize: metrics.pixelSize
         fillMode: Image.PreserveAspectCrop
         visible: false
     }
@@ -52,6 +58,16 @@ Item {
         // The effect and its texture provider share one lifetime. A pooled
         // delegate must not leave an effect referencing a destroyed mask.
         sourceComponent: Item {
+            ShaderEffectSource {
+                id: capture
+                objectName: "coverCapture"
+                sourceItem: cover
+                sourceRect: Qt.rect(0, 0, control.width, control.height)
+                textureSize: metrics.pixelSize
+                visible: false
+                live: true
+                recursive: false
+            }
             Item {
                 id: mask
                 objectName: "coverRoundedMask"
@@ -59,6 +75,7 @@ Item {
                 visible: false
                 layer.enabled: true
                 layer.smooth: true
+                layer.textureSize: metrics.pixelSize
                 Rectangle {
                     anchors.fill: parent
                     radius: control.cornerRadius
@@ -67,8 +84,9 @@ Item {
                 }
             }
             MultiEffect {
+                objectName: "coverMaskEffect"
                 anchors.fill: parent
-                source: cover
+                source: capture
                 // Default thresholds turn the mask's fractional coverage into
                 // a hard edge. Preserve Qt Rectangle AA at every cover size.
                 maskEnabled: true

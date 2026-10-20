@@ -22,11 +22,12 @@ EchoIconButton {
     property bool compact: false
     property int projection: ShellActionModel.All
     objectName: (player ? "playerbar-action-" : "titlebar-action-") + actionId
-    glyph: actionId === "play-toggle" && playbackLoading ? "" : actionIcon
+    glyph: actionIcon
+    iconCovered: player && actionId === "play-toggle" && playbackLoading
     animatePlayPause: player && actionId === "play-toggle"
     playIconOffset: 1
     text: actionTitle
-    tooltipText: actionId === "barrage" ? actionActive ? qsTr("弹幕已开启 · 设置与发送") : qsTr("弹幕已关闭 · 设置与发送") : ["recognize", "tasks", "sleep-timer", "play-mode", "speed", "quality", "effect", "desktop-lyric", "cast", "queue", "lyric-skins", "barrage"].includes(actionId) ? text : ""
+    tooltipText: actionId === "barrage" ? actionActive ? qsTr("弹幕已开启 · 设置与发送") : qsTr("弹幕已关闭 · 设置与发送") : text
     enabled: actionEnabled || player && actionId === "play-toggle" && playbackLoading
     hoverBackground: !player
     hoverWhenDisabled: !player

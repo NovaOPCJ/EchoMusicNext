@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QWheelEvent>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -345,11 +346,15 @@ Window {
         AlbumDetailContextTestAccess::seed(
             *context, "中文与 Latin 专辑长名称",
             QStringLiteral("中文与 Latin 的完整专辑简介，用于检查截断和查看详情入口。 ")
-                .repeated(10));
+                .repeated(80));
         // A local file keeps the visual verification deterministic and avoids a
         // background HTTP request during the offscreen page test.
         QImage cover(400, 400, QImage::Format_RGB32);
         cover.fill(QColor("#4b5c6b"));
+        const auto artworkFile = qEnvironmentVariable("ECHO_ALBUM_COVER_FILE");
+        if (!artworkFile.isEmpty()) {
+            QVERIFY(cover.load(artworkFile));
+        }
         QVERIFY(cover.save(dir.filePath("album-cover.png")));
         const auto coverUrl = QUrl::fromLocalFile(dir.filePath("album-cover.png")).toString();
         AlbumDetailContextTestAccess::setCover(*context, coverUrl);
@@ -395,16 +400,37 @@ Window {
         context->songs()->setQuery(QString());
         QCOMPARE(context->songs()->count(), 200);
         // Intro dialog is created on the user action and released after close.
+        const auto artifacts = qEnvironmentVariable("ECHO_ALBUM_ARTIFACTS");
+        if (!artifacts.isEmpty())
+            QVERIFY(QDir().mkpath(artifacts));
         QVERIFY(QMetaObject::invokeMethod(introOwner, "open", Q_ARG(QVariant, QVariant())));
         QTRY_VERIFY(introOwner->property("item").value<QObject *>());
         auto *dialog = introOwner->property("item").value<QObject *>();
         QCOMPARE(dialog->property("heading").toString(), QString("专辑介绍"));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *introScroll = albumVisual(window->contentItem(), "textDialogScroll");
+        QVERIFY(introScroll);
+        QVERIFY(introScroll->property("contentHeight").toReal() > introScroll->height());
+        if (!artifacts.isEmpty())
+            QVERIFY(window->grabWindow().save(artifacts + "/intro-top.png"));
+        QCOMPARE(dialog->property("text").toString(),
+                 context->detail().value("description").toString());
+        introScroll->forceActiveFocus();
+        const auto wheelAt =
+            introScroll->mapToScene({introScroll->width() / 2, introScroll->height() / 2});
+        QWheelEvent wheel(wheelAt, window->mapToGlobal(wheelAt), {}, {0, -120}, Qt::NoButton,
+                          Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &wheel);
+        QTRY_VERIFY(introScroll->property("contentY").toReal() > 0);
+        QTest::keyClick(window, Qt::Key_End);
+        QTRY_VERIFY(introScroll->property("contentY").toReal() > 0);
+        QCOMPARE(introScroll->property("contentY").toReal(),
+                 introScroll->property("contentHeight").toReal() - introScroll->height());
+        if (!artifacts.isEmpty())
+            QVERIFY(window->grabWindow().save(artifacts + "/intro-end.png"));
         QVERIFY(introOwner->metaObject()->invokeMethod(introOwner, "close"));
         QTRY_VERIFY(!introOwner->property("item").value<QObject *>());
         // Render the real header at both themes and zooms for visual review.
-        const auto artifacts = qEnvironmentVariable("ECHO_ALBUM_ARTIFACTS");
-        if (!artifacts.isEmpty())
-            QVERIFY(QDir().mkpath(artifacts));
         for (bool dark : {false, true})
             for (double scale : {1., 1.25}) {
                 theme.setMode(dark ? ThemeStore::Dark : ThemeStore::Light);

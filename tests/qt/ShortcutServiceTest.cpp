@@ -7,11 +7,100 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <QGuiApplication>
+#include <QMetaEnum>
 using namespace EchoMusic;
 class ShortcutServiceTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void macArrowEventsMatchBindings()
+    {
+#if defined(Q_OS_MACOS)
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("arrows.ini"), QSettings::IniFormat);
+        ShortcutService service(settings, false);
+        QQuickWindow window;
+        service.attach(&window);
+        window.show();
+        window.requestActivate();
+        QTRY_VERIFY(window.isActive());
+        QSignalSpy actions(&service, &ShortcutService::triggered);
+        struct Binding
+        {
+            Qt::Key key;
+            Qt::KeyboardModifiers modifiers;
+            ShortcutService::Command command;
+        };
+        const QList<Binding> bindings{
+            {Qt::Key_Left, Qt::ControlModifier, ShortcutService::PreviousTrack},
+            {Qt::Key_Right, Qt::ControlModifier, ShortcutService::NextTrack},
+            {Qt::Key_Left, Qt::ControlModifier | Qt::AltModifier, ShortcutService::SeekBackward},
+            {Qt::Key_Right, Qt::ControlModifier | Qt::AltModifier, ShortcutService::SeekForward},
+            {Qt::Key_Up, Qt::ControlModifier, ShortcutService::VolumeUp},
+            { Qt::Key_Down,
+              Qt::ControlModifier,
+              ShortcutService::VolumeDown }};
+        for (const auto &binding : bindings) {
+            actions.clear();
+            QTest::keyClick(&window, binding.key, binding.modifiers | Qt::KeypadModifier);
+            QCOMPARE(actions.size(), 1);
+            QCOMPARE(qvariant_cast<ShortcutService::Command>(actions.first().first()),
+                     binding.command);
+            actions.clear();
+            QTest::keyClick(&window, binding.key, binding.modifiers);
+            QCOMPARE(actions.size(), 1);
+            QTest::keyClick(&window, binding.key,
+                            binding.modifiers | Qt::ShiftModifier | Qt::KeypadModifier);
+            QCOMPARE(actions.size(), 1);
+        }
+        auto editor = new QQuickItem(window.contentItem());
+        editor->setFlag(QQuickItem::ItemAcceptsInputMethod);
+        editor->forceActiveFocus();
+        actions.clear();
+        QTest::keyClick(&window, Qt::Key_Right, Qt::ControlModifier | Qt::KeypadModifier);
+        QVERIFY(actions.isEmpty());
+        service.shutdown();
+#else
+        QSKIP("macOS arrow-key modifier semantics");
+#endif
+    }
+    void macArrowRecordingAndStoredBindingsUseSameIdentity()
+    {
+#if defined(Q_OS_MACOS)
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("recording.ini"), QSettings::IniFormat);
+        // A binding previously recorded from a native arrow event can carry Num.
+        settings.setValue("shortcuts/local/nextTrack", "Ctrl+Num+Right");
+        ShortcutService service(settings, false);
+        service.beginRecording(ShortcutService::PreviousTrack, false);
+        QSignalSpy notices(&service, &ShortcutService::notice);
+        QVERIFY(!service.recordKey(Qt::Key_Right, Qt::ControlModifier));
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(!service.recordKey(Qt::Key_Right, Qt::ControlModifier | Qt::KeypadModifier));
+        QCOMPARE(notices.size(), 2);
+        service.stopRecording();
+        service.beginRecording(ShortcutService::PreviousTrack, false);
+        QVERIFY(service.recordKey(Qt::Key_Left, Qt::ControlModifier | Qt::AltModifier |
+                                                    Qt::ShiftModifier | Qt::KeypadModifier));
+        QCOMPARE(settings.value("shortcuts/local/previousTrack").toString(),
+                 QString("Ctrl+Alt+Shift+Left"));
+        service.setGlobalEnabled(true);
+        service.beginRecording(ShortcutService::NextTrack, true);
+        QVERIFY(service.recordKey(Qt::Key_Right,
+                                  Qt::ControlModifier | Qt::ShiftModifier | Qt::KeypadModifier));
+        QCOMPARE(settings.value("shortcuts/global/nextTrack").toString(),
+                 QString("Ctrl+Shift+Right"));
+        // Numeric keypad keys retain their distinct identity.
+        service.beginRecording(ShortcutService::PreviousTrack, false);
+        QVERIFY(service.recordKey(Qt::Key_1, Qt::ControlModifier | Qt::KeypadModifier));
+        QCOMPARE(
+            QKeySequence(settings.value("shortcuts/local/previousTrack").toString()),
+            QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::KeypadModifier, Qt::Key_1)));
+#else
+        QSKIP("macOS arrow-key modifier semantics");
+#endif
+    }
     void presentationUsesSourceModifierOrderWithoutChangingBindings()
     {
         QTemporaryDir directory;
@@ -169,5 +258,30 @@ private slots:
         QCOMPARE(actions.size(), 2);
     }
 };
-QTEST_MAIN(ShortcutServiceTest)
+int main(int argc, char **argv)
+{
+    QGuiApplication app(argc, argv);
+    if (app.arguments().contains("--native-probe")) {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath("probe.ini"), QSettings::IniFormat);
+        ShortcutService service(settings, false);
+        QQuickWindow window;
+        window.setTitle("EchoMusicNext shortcut probe: ready");
+        window.resize(480, 240);
+        service.attach(&window);
+        int count = 0;
+        QObject::connect(
+            &service, &ShortcutService::triggered, &window, [&](ShortcutService::Command command) {
+                const auto name =
+                    QMetaEnum::fromType<ShortcutService::Command>().valueToKey(command);
+                window.setTitle(QString("EchoMusicNext shortcut probe: %1 #%2")
+                                    .arg(QString::fromLatin1(name))
+                                    .arg(++count));
+            });
+        window.show();
+        return app.exec();
+    }
+    ShortcutServiceTest test;
+    return QTest::qExec(&test, argc, argv);
+}
 #include "ShortcutServiceTest.moc"

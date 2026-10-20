@@ -65,7 +65,6 @@ ItemDelegate {
         padding: 7
         glyph: "trash"
         text: row.kind === "owned" ? qsTr("删除歌单") : qsTr("取消收藏")
-        tooltipText: row.kind === "owned" ? "" : text
         onClicked: row.removeRequested(row.cloudListId, row.title, row.kind === "owned")
     }
     EchoToolTip {

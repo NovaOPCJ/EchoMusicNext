@@ -20,6 +20,8 @@ qt_add_qml_module(
     EchoWheelForwarder.cpp
     EchoIconSource.h
     EchoIconSource.cpp
+    EchoImageMetrics.h
+    EchoImageMetrics.cpp
     EchoColorValue.h
     EchoColorValue.cpp
     EchoSelectModel.h
@@ -88,6 +90,7 @@ qt_add_qml_module(
     EchoDetailTabs.qml
     EchoEnter.qml
     EchoDialog.qml
+    EchoTextDialog.qml
     EchoOptionPicker.qml
     EchoDrawer.qml
     EchoDrawerHeader.qml

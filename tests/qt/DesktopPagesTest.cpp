@@ -4440,6 +4440,55 @@ private slots:
             qWarning() << warning;
         QCOMPARE(warnings.size(), 0);
     }
+    void playbackLoadingRevealsFinalPlayPauseIcon()
+    {
+        Session session;
+        session.preferences.setValue("playback/volume", 0);
+        const auto path = session.directory.filePath("loading-icon.wav");
+        QVERIFY(writeFloatingTestWave(path));
+        PlaybackService playback(session.api, session.preferences);
+        QVERIFY(session.create(&playback));
+        const auto cleanup = qScopeGuard([&session] {
+            session.root.reset();
+            session.window = nullptr;
+        });
+        QVERIFY(Test::prepareNativeInput(session.window));
+        QQuickItem *button = nullptr;
+        QTRY_VERIFY(
+            (button = visual(session.window->contentItem(), "playerbar-action-play-toggle")));
+        auto *initialIcon = visual(button, "playPauseIcon");
+        QVERIFY(initialIcon);
+        QTRY_VERIFY(initialIcon->property("ready").toBool());
+        int revealedFrames = 0;
+        QStringList intermediateFrames;
+        const auto observation =
+            connect(session.window, &QQuickWindow::afterAnimating, session.window, [&] {
+                auto *icon = visual(button, "playPauseIcon");
+                if (!icon || !icon->isVisible() || playback.loading() ||
+                    button->property("glyph").toString() != "pause")
+                    return;
+                ++revealedFrames;
+                const auto phase = icon->property("phase").toReal();
+                if (phase < 1.)
+                    intermediateFrames.append(QString::number(phase));
+            });
+        const auto disconnectObservation = qScopeGuard([&] { disconnect(observation); });
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            PlaybackTrack track;
+            track.id = QString("loading-icon-%1").arg(cycle);
+            track.localPath = path;
+            track.title = QStringLiteral("加载完成后的播放图标");
+            playback.playTracks({track}, 0, "Loading icon", track.id);
+            QVERIFY(playback.loading());
+            QTRY_VERIFY_WITH_TIMEOUT(playback.playing() && !playback.loading(), 15000);
+            QTest::qWait(220);
+        }
+        QVERIFY(revealedFrames > 0);
+        QVERIFY2(intermediateFrames.isEmpty(),
+                 qPrintable("Loading revealed intermediate play/pause phases: " +
+                            intermediateFrames.join(',')));
+        qInfo() << "Post-loading pause frames" << revealedFrames;
+    }
     void playbackToolbarsMatchSourceAcrossWidths()
     {
         const auto cursorPosition = QCursor::pos();

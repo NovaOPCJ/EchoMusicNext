@@ -7,6 +7,27 @@ namespace EchoMusic
 {
 namespace
 {
+QKeySequence normalizedShortcut(const QKeySequence &sequence)
+{
+#if defined(Q_OS_MACOS)
+    if (sequence.count() == 1) {
+        const auto combination = sequence[0];
+        switch (combination.key()) {
+        case Qt::Key_Left:
+        case Qt::Key_Right:
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+            // Cocoa annotates ordinary arrow keys with KeypadModifier. It does
+            // not distinguish an arrow binding; actual keypad keys still do.
+            return QKeySequence(QKeyCombination(
+                combination.keyboardModifiers() & ~Qt::KeypadModifier, combination.key()));
+        default:
+            break;
+        }
+    }
+#endif
+    return sequence;
+}
 QString displayShortcut(const QKeySequence &sequence)
 {
     if (sequence.isEmpty())
@@ -128,6 +149,8 @@ ShortcutService::ShortcutService(QSettings &settings, bool nativeRegistration, Q
                                     entry.defaultGlobal.toString(QKeySequence::PortableText))
                              .toString(),
                          QKeySequence::PortableText);
+        entry.local = normalizedShortcut(entry.local);
+        entry.global = normalizedShortcut(entry.global);
         m_entries.append(entry);
     }
     connect(&m_global, &GlobalShortcuts::activated, this, [this](int command) {
@@ -225,7 +248,8 @@ bool ShortcutService::recordKey(int key, Qt::KeyboardModifiers modifiers, bool r
         emit notice(tr("普通按键快捷键至少需要包含一个修饰键"));
         return false;
     }
-    const QKeySequence sequence(QKeyCombination(modifiers, Qt::Key(key)));
+    const auto sequence =
+        normalizedShortcut(QKeySequence(QKeyCombination(modifiers, Qt::Key(key))));
     for (int row = 0; row < m_entries.size(); ++row) {
         if (row != m_recordingRow &&
             sequence == (m_recordingGlobal ? m_entries[row].global : m_entries[row].local)) {
@@ -358,7 +382,7 @@ bool ShortcutService::eventFilter(QObject *watched, QEvent *event)
     }
     if (!m_window || !m_window->isActive() || editableFocus() || key->isAutoRepeat())
         return false;
-    const auto sequence = QKeySequence(key->keyCombination());
+    const auto sequence = normalizedShortcut(QKeySequence(key->keyCombination()));
     for (int row = 0; row < m_entries.size(); ++row) {
         if (m_entries[row].local.isEmpty() || m_entries[row].local != sequence)
             continue;

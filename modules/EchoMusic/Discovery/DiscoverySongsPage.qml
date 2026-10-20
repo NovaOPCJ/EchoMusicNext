@@ -183,12 +183,12 @@ RoutePage {
         id: introOwner
         hostItem: page
         sourceComponent: Component {
-            EchoDialog {
+            EchoTextDialog {
                 id: intro
                 heading: page.service.selectedRank.title || qsTr("榜单简介")
                 preferredWidth: 520
                 uiScale: page.settings.uiScale
-                description: page.rankDescription
+                text: page.rankDescription
             }
         }
     }

@@ -45,6 +45,14 @@ add_test(
 )
 set_tests_properties(update-helper PROPERTIES TIMEOUT 30)
 qt_add_executable(echo-shortcut-service-test ShortcutServiceTest.cpp)
+if(APPLE)
+    set_target_properties(
+        echo-shortcut-service-test
+        PROPERTIES MACOSX_BUNDLE TRUE
+                   MACOSX_BUNDLE_GUI_IDENTIFIER "${ECHO_APPLICATION_ID}.shortcut-probe"
+                   MACOSX_BUNDLE_BUNDLE_NAME "EchoMusicNext shortcut probe"
+    )
+endif()
 qt_add_executable(echo-settings-backup-test SettingsBackupTest.cpp)
 target_link_libraries(
     echo-settings-backup-test PRIVATE echo_settings echo_storage Qt6::Sql Qt6::Test
