@@ -250,6 +250,10 @@ Popup {
             objectName: "playbackQueueList"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // Match PlayerQueueVirtualList's horizontal list padding. The
+            // popup scrollbar keeps its own surface-edge positioning.
+            Layout.leftMargin: 10
+            Layout.rightMargin: 10
             clip: true
             reuseItems: true
             cacheBuffer: 56 * 10
