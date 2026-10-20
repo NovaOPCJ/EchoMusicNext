@@ -189,6 +189,7 @@ set_tests_properties(
 )
 qt_add_executable(echo-native-menus-test NativeMenusTest.cpp)
 if(APPLE)
+    target_sources(echo-native-menus-test PRIVATE NativeMenusMacTest.mm)
     target_sources(echo-native-menus-test PRIVATE ../../app/assets/icon.icns)
     set_source_files_properties(
         ../../app/assets/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources

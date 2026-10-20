@@ -14,6 +14,7 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QIcon>
+#include <functional>
 namespace EchoMusic
 {
 namespace
@@ -31,6 +32,8 @@ QRectF macCaptionBounds(QQuickWindow *window);
 void setMacDockHidden(bool hidden);
 QMenuBar *createMacApplicationMenu(WindowController *controller);
 void popupMacTrayMenu(QMenu *menu);
+void retireMacMenu(QMenu *menu);
+QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMenu *()> create);
 #endif
 WindowController::WindowController(QSettings &settings, bool persist, QObject *parent)
     : QObject(parent), m_settings(settings), m_floating(settings, persist, this),
@@ -138,8 +141,11 @@ void WindowController::attach(QQuickWindow *window)
         connect(m_tray.get(), &QSystemTrayIcon::activated, this,
                 [this](QSystemTrayIcon::ActivationReason reason) { activateTray(int(reason)); });
 #ifdef Q_OS_MACOS
-        if (QGuiApplication::platformName() == "cocoa")
+        if (QGuiApplication::platformName() == "cocoa") {
             m_applicationMenu.reset(createMacApplicationMenu(this));
+            m_dockMenuOwner.reset(
+                createMacDockMenuOwner(this, [this] { return createDockMenu(); }));
+        }
 #endif
         m_tray->show();
         // Qt's Cocoa delegate forwards Finder/Dock reopen with forcePropagate,
@@ -227,33 +233,64 @@ QMenu *WindowController::createTrayMenu()
     menu->addAction(tr("打开主窗口"), this, &WindowController::showWindow);
     menu->addAction(tr("打开 Mini 窗口"), this, &WindowController::showMiniWindow);
     menu->addSeparator();
+    addPlaybackMenuActions(menu);
+    addLyricsMenuActions(menu);
+    menu->addSeparator();
+    menu->addAction(tr("退出"), this, &WindowController::quit);
+    return menu;
+}
+QMenu *WindowController::createDockMenu()
+{
+    if (m_shuttingDown)
+        return nullptr;
+    auto *menu = new QMenu;
+    menu->setObjectName("nativeDockMenu");
+    addPlaybackMenuActions(menu);
+    addLyricsMenuActions(menu);
+    return menu;
+}
+void WindowController::addPlaybackMenuActions(QMenu *menu)
+{
     if (m_playback) {
         auto *playback = m_playback.data();
         auto *play = menu->addAction(QString(), playback, &PlaybackService::toggle);
-        menu->addAction(tr("上一首"), playback, &PlaybackService::previous);
-        menu->addAction(tr("下一首"), playback, [playback] { playback->next(); });
+        play->setObjectName("togglePlayback");
+        menu->addAction(tr("上一首"), playback, &PlaybackService::previous)
+            ->setObjectName("previous");
+        menu->addAction(tr("下一首"), playback, [playback] { playback->next(); })
+            ->setObjectName("next");
         auto *modes = menu->addMenu(tr("播放模式"));
         auto *group = new QActionGroup(modes);
-        const QList<QPair<PlaybackService::PlayMode, QString>> definitions{
-            {PlaybackService::Sequential, tr("顺序播放")},
-            {PlaybackService::ListLoop, tr("列表循环")},
-            {PlaybackService::Shuffle, tr("随机播放")},
-            {PlaybackService::SingleLoop, tr("单曲循环")}};
-        for (const auto &[mode, label] : definitions) {
+        struct ModeAction
+        {
+            PlaybackService::PlayMode mode;
+            QString label;
+            QString command;
+        };
+        const QList<ModeAction> definitions{
+            {PlaybackService::Sequential, tr("顺序播放"), "sequential"},
+            {PlaybackService::ListLoop, tr("列表循环"), "listLoop"},
+            {PlaybackService::Shuffle, tr("随机播放"), "shuffle"},
+            {PlaybackService::SingleLoop, tr("单曲循环"), "singleLoop"}};
+        for (const auto &[mode, label, command] : definitions) {
             auto *action = modes->addAction(label, playback,
                                             [playback, mode] { playback->setPlayMode(mode); });
             action->setCheckable(true);
             action->setData(int(mode));
+            action->setObjectName(command);
             group->addAction(action);
         }
         menu->addSeparator();
         auto *volume = menu->addAction(QString());
         volume->setEnabled(false);
         menu->addAction(tr("增大音量"), playback,
-                        [playback] { playback->setVolume(playback->volume() + 5); });
+                        [playback] { playback->setVolume(playback->volume() + 5); })
+            ->setObjectName("volumeUp");
         menu->addAction(tr("减小音量"), playback,
-                        [playback] { playback->setVolume(playback->volume() - 5); });
-        menu->addAction(tr("静音 / 取消静音"), playback, &PlaybackService::toggleMute);
+                        [playback] { playback->setVolume(playback->volume() - 5); })
+            ->setObjectName("volumeDown");
+        menu->addAction(tr("静音 / 取消静音"), playback, &PlaybackService::toggleMute)
+            ->setObjectName("toggleMute");
         const auto update = [playback, play, volume, group] {
             play->setText(playback->playing() ? tr("暂停") : tr("播放"));
             volume->setText(tr("音量 %1%").arg(qRound(playback->volume())));
@@ -264,19 +301,20 @@ QMenu *WindowController::createTrayMenu()
         update();
         menu->addSeparator();
     }
+}
+void WindowController::addLyricsMenuActions(QMenu *menu)
+{
     auto *lock = menu->addAction(QString(), &m_floating, [this] {
         if (m_floating.desktopEnabled())
             m_floating.setLocked(!m_floating.locked());
     });
+    lock->setObjectName("toggleLyricsLock");
     const auto updateLock = [this, lock] {
         lock->setText(m_floating.locked() ? tr("解锁桌面歌词") : tr("锁定桌面歌词"));
         lock->setEnabled(m_floating.desktopEnabled());
     };
     connect(&m_floating, &FloatingPlayerController::changed, menu, updateLock);
     updateLock();
-    menu->addSeparator();
-    menu->addAction(tr("退出"), this, &WindowController::quit);
-    return menu;
 }
 void WindowController::popupTrayMenu()
 {
@@ -287,10 +325,8 @@ void WindowController::popupTrayMenu()
     m_trayMenu = menu;
 #ifdef Q_OS_MACOS
     if (QGuiApplication::platformName() == "cocoa") {
-        // Native tracking is synchronous; keep QActions alive until AppKit has
-        // finished dispatching the selected item, then release the entire tree.
         popupMacTrayMenu(menu);
-        menu->deleteLater();
+        retireMacMenu(menu);
         return;
     }
 #endif

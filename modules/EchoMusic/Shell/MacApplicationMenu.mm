@@ -80,4 +80,14 @@ void popupMacTrayMenu(QMenu *menu)
     // right-click reaches here; AppKit owns tracking, dismissal and submenus.
     [native popUpMenuPositioningItem:nil atLocation:NSEvent.mouseLocation inView:nil];
 }
+void retireMacMenu(QMenu *menu)
+{
+    // Cocoa queues QPlatformMenuItem::activated, then QMenu queues QAction::trigger.
+    // Cross both queued hops before posting DeferredDelete. Cocoa can flush
+    // deferred deletes between posted-event batches, before the second hop.
+    QMetaObject::invokeMethod(
+        menu,
+        [menu] { QMetaObject::invokeMethod(menu, &QObject::deleteLater, Qt::QueuedConnection); },
+        Qt::QueuedConnection);
+}
 } // namespace EchoMusic

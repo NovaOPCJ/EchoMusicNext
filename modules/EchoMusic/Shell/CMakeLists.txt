@@ -112,6 +112,7 @@ if(APPLE)
     enable_language(OBJCXX)
     target_sources(
         echo_shell PRIVATE MacWindowCaption.mm MacFloatingWindow.mm MacApplicationMenu.mm
+                           MacDockMenu.mm
     )
     target_link_libraries(echo_shell PRIVATE "-framework Cocoa")
 endif()

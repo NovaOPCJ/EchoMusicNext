@@ -8,8 +8,20 @@
 #include <QSystemTrayIcon>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <functional>
 
 using namespace EchoMusic;
+#ifdef Q_OS_MACOS
+bool dispatchMacMenuAction(QMenu *menu, const QString &text);
+QStringList macDockMenuLabels();
+bool dispatchMacDockAction(const QString &text);
+quintptr macApplicationDelegate();
+namespace EchoMusic
+{
+void retireMacMenu(QMenu *menu);
+QObject *createMacDockMenuOwner(WindowController *controller, std::function<QMenu *()> create);
+} // namespace EchoMusic
+#endif
 namespace EchoMusic
 {
 class PlaybackServiceTestAccess
@@ -31,6 +43,10 @@ public:
     static QMenu *create(WindowController &window)
     {
         return window.createTrayMenu();
+    }
+    static QMenu *createDock(WindowController &window)
+    {
+        return window.createDockMenu();
     }
     static void activate(WindowController &window, QSystemTrayIcon::ActivationReason reason)
     {
@@ -57,6 +73,124 @@ class NativeMenusTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void cocoaDockUsesFreshStateAndReleasesRecipes()
+    {
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Requires Cocoa's application delegate and Dock commands");
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("dock.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
+        playback.setStartupHeld(true);
+        WindowController window(settings, false);
+        window.attachPlayback(playback);
+        const auto previousDelegate = macApplicationDelegate();
+        int creations = 0;
+        QPointer<QMenu> recipe, submenu;
+        std::unique_ptr<QObject> owner(createMacDockMenuOwner(&window, [&] {
+            ++creations;
+            recipe = NativeMenusTestAccess::createDock(window);
+            submenu = recipe ? find(recipe, "播放模式")->menu() : nullptr;
+            return recipe.data();
+        }));
+        QCOMPARE(creations, 0);
+        QVERIFY(macApplicationDelegate() != previousDelegate);
+        playback.setVolume(40);
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            const auto labels = macDockMenuLabels();
+            QVERIFY(labels.contains("播放"));
+            QVERIFY(labels.contains("上一首"));
+            QVERIFY(labels.contains("下一首"));
+            QVERIFY(labels.contains("音量 40%"));
+            QVERIFY(!labels.contains("打开主窗口"));
+            QVERIFY(!labels.contains("退出"));
+            QVERIFY(!recipe && !submenu);
+            QVERIFY(dispatchMacDockAction("增大音量"));
+            QCOMPARE(playback.volume(), 45.);
+            QVERIFY(!recipe && !submenu);
+            QVERIFY(dispatchMacDockAction("减小音量"));
+            QCOMPARE(playback.volume(), 40.);
+            QVERIFY(dispatchMacDockAction("静音 / 取消静音"));
+            QCOMPARE(playback.volume(), 0.);
+            QVERIFY(dispatchMacDockAction("静音 / 取消静音"));
+            QCOMPARE(playback.volume(), 40.);
+            QVERIFY(dispatchMacDockAction("随机播放"));
+            QCOMPARE(playback.playMode(), PlaybackService::Shuffle);
+            QVERIFY(dispatchMacDockAction("列表循环"));
+            QCOMPARE(playback.playMode(), PlaybackService::ListLoop);
+            QVERIFY(!dispatchMacDockAction("锁定桌面歌词"));
+            window.floating()->setDesktopEnabled(true);
+            QVERIFY(dispatchMacDockAction("锁定桌面歌词"));
+            QVERIFY(window.floating()->locked());
+            QVERIFY(dispatchMacDockAction("解锁桌面歌词"));
+            QVERIFY(!window.floating()->locked());
+            window.floating()->setDesktopEnabled(false);
+            QVERIFY(!recipe && !submenu);
+        }
+        window.shutdown();
+        QVERIFY(macDockMenuLabels().isEmpty());
+        QVERIFY(!dispatchMacDockAction("增大音量"));
+        QVERIFY(!recipe && !submenu);
+        owner.reset();
+        QCOMPARE(macApplicationDelegate(), previousDelegate);
+        QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        playback.shutdown();
+        api.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+#else
+        QSKIP("macOS only");
+#endif
+    }
+    void cocoaCommandsSurviveRetirement()
+    {
+#ifdef Q_OS_MACOS
+        if (QGuiApplication::platformName() != "cocoa")
+            QSKIP("Requires the native Cocoa action dispatch path");
+        QTemporaryDir dir;
+        QSettings settings(dir.filePath("native.ini"), QSettings::IniFormat);
+        ApiClient api(DeviceIdentity::temporary());
+        PlaybackService playback(api, settings, nullptr, dir.filePath("playback.sqlite"));
+        playback.setStartupHeld(true);
+        WindowController window(settings, false);
+        window.attachPlayback(playback);
+        const std::unique_ptr<QObject> dockOwner(createMacDockMenuOwner(
+            &window, [&] { return NativeMenusTestAccess::createDock(window); }));
+        QSignalSpy quitting(&window, &WindowController::quitRequested);
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            playback.setVolume(40);
+            QPointer<QMenu> menu = NativeMenusTestAccess::create(window);
+            QPointer<QMenu> submenu = find(menu, "播放模式")->menu();
+            QVERIFY(dispatchMacMenuAction(menu, "增大音量"));
+            retireMacMenu(menu);
+            QTRY_COMPARE(playback.volume(), 45.);
+            QTRY_VERIFY(!menu);
+            QVERIFY(!submenu);
+            menu = NativeMenusTestAccess::create(window);
+            submenu = find(menu, "播放模式")->menu();
+            playback.setPlayMode(PlaybackService::ListLoop);
+            QVERIFY(dispatchMacMenuAction(submenu, "随机播放"));
+            retireMacMenu(menu);
+            QTRY_COMPARE(playback.playMode(), PlaybackService::Shuffle);
+            QTRY_VERIFY(!menu);
+            QVERIFY(!submenu);
+            menu = NativeMenusTestAccess::create(window);
+            QVERIFY(dispatchMacMenuAction(menu, "退出"));
+            retireMacMenu(menu);
+            QTRY_COMPARE(quitting.size(), cycle + 1);
+            QTRY_VERIFY(!menu);
+            QVERIFY(!submenu);
+        }
+        QSignalSpy closed(&playback, &PlaybackService::closed), apiClosed(&api, &ApiClient::closed);
+        playback.shutdown();
+        api.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(apiClosed.size(), 1, 15000);
+#else
+        QSKIP("macOS only");
+#endif
+    }
     void serviceActionsAndLifetime()
     {
         QTemporaryDir dir;
@@ -235,6 +369,15 @@ int main(int argc, char **argv)
         return result;
     }
     NativeMenusTest test;
+    if (QGuiApplication::platformName() == "cocoa") {
+        int result = 1;
+        QTimer::singleShot(0, &app, [&] {
+            result = QTest::qExec(&test, argc, argv);
+            app.exit(result);
+        });
+        app.exec();
+        return result;
+    }
     return QTest::qExec(&test, argc, argv);
 }
 #include "NativeMenusTest.moc"

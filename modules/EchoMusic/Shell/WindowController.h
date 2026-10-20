@@ -140,6 +140,9 @@ private:
     void setBackground(bool background);
     void popupTrayMenu();
     QMenu *createTrayMenu();
+    QMenu *createDockMenu();
+    void addPlaybackMenuActions(QMenu *menu);
+    void addLyricsMenuActions(QMenu *menu);
     QSettings &m_settings;
     FloatingPlayerController m_floating;
     QPointer<QQuickWindow> m_window;
@@ -166,5 +169,6 @@ private:
     QPointer<PlaybackService> m_playback;
     std::unique_ptr<TrayIconTheme> m_trayTheme;
     std::unique_ptr<QMenuBar> m_applicationMenu;
+    std::unique_ptr<QObject> m_dockMenuOwner;
 };
 } // namespace EchoMusic
