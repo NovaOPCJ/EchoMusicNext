@@ -1,3 +1,7 @@
+// Must precede every other include: crashpad's own headers pull in
+// <windows.h> (which brings in the legacy winsock.h) before winsock2.h,
+// producing sockaddr/fd_set redefinition errors.
+#include <winsock2.h>
 #include "CrashDiagnostics.h"
 #include "EchoBuildInfo.h"
 #include "LogRedaction.h"

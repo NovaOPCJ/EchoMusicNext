@@ -2,6 +2,8 @@
 #include <QObject>
 #include <QtQml/qqmlregistration.h>
 
+class QQmlEngine;
+class QJSEngine;
 namespace EchoMusic
 {
 /// Read-only system UI metrics. Qt.styleHints is exposed as generic QObject in
@@ -13,7 +15,10 @@ class EchoPageScrollMetrics final : public QObject
     QML_SINGLETON
     Q_PROPERTY(int wheelStep READ wheelStep NOTIFY wheelStepChanged FINAL)
 public:
-    explicit EchoPageScrollMetrics(QObject *parent = nullptr);
+    // No default constructor: QML otherwise instantiates through QQmlElement<T>,
+    // which cannot derive from a final class.
+    explicit EchoPageScrollMetrics(QObject *parent);
+    static EchoPageScrollMetrics *create(QQmlEngine *engine, QJSEngine *scriptEngine);
     int wheelStep() const;
 signals:
     void wheelStepChanged();
